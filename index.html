@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#14191f">
+  <meta name="description" content="A character animation practice studio with reference motion, rig controls and your own takes.">
+  <title>Motion Room — Animation Practice</title>
+  <link rel="icon" type="image/png" href="./assets/motion-room-logo.png">
+  <link rel="stylesheet" href="./style.css">
+  <script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script>
+</head>
+<body>
+<div class="studio" id="studio">
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="Motion Room home"><span class="brand-mark"><img src="./assets/motion-room-logo.png" alt="" width="42" height="42"></span><span>Motion Room<small>Animation Practice</small></span></a>
+    <div class="top-actions">
+      <span class="save-status" id="save-status"><span data-icon="check"></span><span id="save-label">Saved locally</span></span>
+      <button class="button mobile-library" id="library-toggle" aria-expanded="false"><span data-icon="layers"></span> Library</button>
+      <button class="button" id="import-animation"><span data-icon="upload"></span><span>Import animation</span></button>
+      <button class="button quiet" id="help-btn" aria-label="Help"><span data-icon="help"></span></button>
+      <button class="button primary" id="export-btn"><span data-icon="download"></span><span>Export</span></button>
+    </div>
+    <input type="file" id="animation-file" accept=".glb,.fbx" hidden>
+  </header>
+
+  <aside class="library-panel" id="library-panel">
+    <nav class="workspace-tabs" aria-label="Workspace">
+      <button type="button" data-workspace="practice" aria-pressed="true" class="active">Practice</button>
+      <button type="button" data-workspace="projects" aria-pressed="false">Projects</button>
+    </nav>
+    <div class="library-heading"><h2 id="library-title">Reference library</h2><span id="library-count"></span></div>
+    <button class="button new-project" id="new-project"><span data-icon="plus"></span> New animation</button>
+    <nav class="motion-library" id="motion-library" aria-label="Reference motions"></nav>
+    <div class="project-list" id="project-list" aria-label="Saved animations" hidden></div>
+    <div class="project-list" id="project-trash" aria-label="Deleted animations" hidden></div>
+    <button class="button quiet project-trash-toggle" id="project-trash-toggle" hidden><span data-icon="trash"></span><span>Trash (0)</span></button>
+  </aside>
+
+  <main class="workspace" aria-labelledby="workspace-title">
+    <header class="workspace-header">
+      <div class="workspace-title"><p id="workspace-kind">Practice</p><h1 id="workspace-title"></h1></div>
+      <div class="segmented comparison-layout" role="group" aria-label="Comparison layout">
+        <button type="button" data-layout="side" class="active" aria-pressed="true">Side by side</button>
+        <button type="button" data-layout="overlay" aria-pressed="false"><span data-icon="layers"></span>Overlay</button>
+        <button type="button" data-layout="solo" aria-pressed="false">Solo</button>
+      </div>
+    </header>
+    <section class="viewport" id="viewport" aria-label="3D animation workspace">
+      <canvas id="scene" aria-label="3D characters. Select a joint and drag the gizmo. Drag the background to orbit."></canvas>
+      <div class="viewport-toolbar">
+        <div class="segmented transform-tools" role="group" aria-label="Transform tool">
+          <button type="button" data-tool="translate" aria-pressed="false" title="Move (W)"><span data-icon="move"></span><span>Move</span></button>
+          <button type="button" data-tool="rotate" class="active" aria-pressed="true" title="Rotate (E)"><span data-icon="rotate"></span><span>Rotate</span></button>
+          <button type="button" data-tool="scale" aria-pressed="false" title="Scale whole character (R)"><span data-icon="scale"></span><span>Scale</span></button>
+        </div>
+        <button class="stage-button" id="add-object"><span data-icon="cube"></span>Add object</button>
+        <div class="display-controls">
+          <button class="stage-button active" id="skeleton-toggle" aria-pressed="true"><span data-icon="rig"></span>Skeleton</button>
+          <details class="display-options">
+            <summary class="stage-button">Display</summary>
+            <div class="display-popover">
+              <label>Character spacing<input id="character-spacing" type="range" min="1.5" max="4" step="0.1" value="2.3"></label>
+              <label>Reference opacity<input id="ghost-opacity" type="range" min="0.05" max="0.7" step="0.05" value="0.25"></label>
+              <label class="checkbox-row"><input id="root-motion" type="checkbox">Show source root motion</label>
+            </div>
+          </details>
+        </div>
+      </div>
+      <div class="actor-labels" id="actor-labels"><span class="source-label">REFERENCE</span><span class="work-label">YOUR ANIMATION</span></div>
+      <div class="loading" id="loading" role="status"><span class="spinner"></span><span id="loading-text">Loading character…</span></div>
+      <div class="viewport-footer">
+        <div class="camera-tools" role="group" aria-label="Camera views">
+          <button type="button" data-view="perspective" aria-label="Perspective" title="Perspective (0)" aria-pressed="true"><span data-icon="cube"></span></button>
+          <button type="button" data-view="front" aria-pressed="false">Front</button>
+          <button type="button" data-view="side" aria-pressed="false">Side</button>
+          <button type="button" data-view="back" aria-pressed="false">Back</button>
+          <button type="button" id="frame-view" title="Frame scene (F)" aria-label="Frame scene"><span data-icon="focus"></span></button>
+        </div>
+        <span class="viewport-hint" id="viewport-hint">Select a joint to pose</span>
+      </div>
+      <span class="capture-badge" id="capture-badge" hidden>Recording video</span>
+    </section>
+
+    <section class="timeline" aria-label="Your animation timeline">
+      <div class="timeline-heading"><span>Your animation <span id="key-count">0 keys</span></span><div class="timeline-modes"><button data-timeline-mode="channels" aria-pressed="false">Channels</button><button data-timeline-mode="curves" aria-pressed="false">Curves</button></div><span id="reference-time-label"></span></div>
+      <div class="timeline-toolbar">
+        <div class="transport" aria-label="Playback">
+          <button class="icon-button" id="restart" aria-label="Go to start" title="Go to start"><span data-icon="restart"></span></button>
+          <button class="icon-button" id="step-back" aria-label="Previous frame"><span data-icon="stepBack"></span></button>
+          <button class="play-button" id="play" aria-label="Play"><span data-icon="play"></span></button>
+          <button class="icon-button" id="step-forward" aria-label="Next frame"><span data-icon="stepForward"></span></button>
+          <button class="icon-button active" id="loop" aria-label="Loop playback" aria-pressed="true"><span data-icon="repeat"></span></button>
+          <select id="speed" aria-label="Playback speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option></select>
+        </div>
+        <output class="frame-display"><span id="frame-current">0</span><span> / </span><span id="frame-end">60</span></output>
+        <div class="key-actions">
+          <button class="icon-button" id="undo" aria-label="Undo" title="Undo (Ctrl+Z)"><span data-icon="undo"></span></button>
+          <button class="icon-button" id="redo" aria-label="Redo" title="Redo (Ctrl+Shift+Z)"><span data-icon="redo"></span></button>
+          <button class="button auto-key" id="auto-key" aria-pressed="true" title="Record a pose after each gizmo edit"><span class="record-dot"></span>Auto key</button>
+          <button class="button" id="add-key" title="Key pose (K)"><span data-icon="key"></span>Key pose</button>
+          <button class="icon-button" id="delete-key" aria-label="Delete key" title="Delete key"><span data-icon="trash"></span></button>
+        </div>
+      </div>
+      <div class="timeline-scale"><div id="ruler" class="ruler" aria-hidden="true"></div><div class="key-track">
+        <input id="timeline" type="range" min="0" max="60" step="1" value="0" aria-label="Current frame">
+        <div class="track-line"></div><div id="key-points"></div><div class="playhead" id="playhead"></div>
+      </div></div>
+      <div class="timeline-caption"><span id="pose-status">Empty take</span><label id="key-frame-editor">Move key to <input type="number" id="key-frame" min="0" step="1" aria-label="Key frame"></label><span id="timeline-rate">30 fps</span></div>
+      <div class="advanced-timeline" id="advanced-timeline" hidden></div>
+    </section>
+  </main>
+
+  <aside class="inspector" aria-label="Animation tools">
+    <nav class="inspector-tabs" aria-label="Tool panels"><button data-inspector-tab="pose" aria-pressed="true">Pose</button><button data-inspector-tab="scene" aria-pressed="false">Scene</button><button data-inspector-tab="study" aria-pressed="false">Study</button></nav>
+    <div class="inspector-scroll">
+      <div data-inspector-panel="pose">
+      <section class="inspector-section pose-tools">
+        <div class="section-heading"><h2>Pose</h2><span id="selected-kind">Joint</span></div>
+        <label class="field">Selected joint<select id="joint" aria-label="Selected joint"></select></label>
+        <div class="pose-tool-options"><label class="field">Gizmo space<select id="transform-space"><option value="world">World</option><option value="local">Local</option></select></label>
+          <label class="field">Next-key interpolation<select id="interpolation"><option value="smooth">Ease in and out</option><option value="linear">Linear</option><option value="hold">Stepped</option><option value="bezier">Bezier</option></select></label></div>
+        <p class="tool-hint" id="transform-hint">Drag a rotation ring in the 3D view.</p>
+        <label class="scale-field">Whole-character scale<span><input id="character-scale" type="number" value="100" min="5" max="2000" step="1" aria-label="Whole-character scale">%</span></label>
+      </section>
+      <section class="inspector-section" id="ik-tools"></section>
+      <section class="inspector-section">
+        <div class="section-heading"><h2>Your take</h2><span id="source-mode-label">Blank</span></div>
+        <label class="field">Name<input id="take-name" type="text" maxlength="100" aria-label="Animation name"></label>
+        <div class="timing-fields">
+          <label class="field">Duration (s)<input id="take-duration" type="number" min="0.1" max="3600" step="0.1"></label>
+          <label class="field">Frame rate<select id="take-fps"><option value="24">24 fps</option><option value="30">30 fps</option><option value="60">60 fps</option></select></label>
+        </div>
+        <label class="field" id="source-clip-row" hidden>Animation clip<select id="source-clip"></select></label>
+        <p class="subtle" id="character-name"></p>
+        <button class="text-button" id="save-as-project"><span data-icon="copy"></span>Save as a new project</button>
+        <button class="text-button" id="clear-take"><span data-icon="restart"></span>Clear keys</button>
+      </section>
+      </div>
+      <div data-inspector-panel="scene" hidden><section class="inspector-section" id="scene-tools"></section></div>
+      <div data-inspector-panel="study" hidden>
+      <section class="inspector-section" id="analysis-tools"></section>
+      <section class="inspector-section" id="training-tools"></section>
+      <section class="inspector-section reference-section">
+        <div class="section-heading"><h2>Reference</h2><button class="button small" id="import-reference">Import</button></div>
+        <input type="file" id="reference-file" accept=".glb,.fbx" hidden>
+        <div class="reference-details" id="reference-details">
+          <strong id="reference-name"></strong><a id="reference-credit" target="_blank" rel="noopener noreferrer" hidden></a>
+          <button class="button small full-width reference-reset" id="reset-reference" title="Restore the original reference clip, linked playback and display defaults. Your animation keys are kept."><span data-icon="restart"></span>Reset reference</button>
+          <label class="field" id="reference-clip-row" hidden>Reference clip<select id="reference-clip"></select></label>
+          <label class="source-scrubber">Source frame<output id="source-frame">0</output><input id="reference-time" type="range" min="0" max="60" step="1" value="0" aria-label="Reference frame"></label>
+          <button class="text-button" id="resync-reference">Link to your playhead</button>
+          <div id="phase-buttons" class="phase-buttons"></div>
+          <p id="reference-observe" class="subtle"></p>
+          <button class="button full-width" id="edit-source"><span data-icon="key"></span>Edit a copy of this animation</button>
+        </div>
+        <p id="reference-empty" class="subtle" hidden>Add a rigged animation to study alongside your own take.</p>
+      </section>
+      </div>
+    </div>
+  </aside>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<dialog id="new-dialog" aria-labelledby="new-title">
+  <form id="new-form">
+    <div class="dialog-heading"><h2 id="new-title">New animation</h2><button class="icon-button" type="button" data-close="new-dialog" aria-label="Close new animation">×</button></div>
+    <label class="field">Name<input id="new-name" type="text" value="Untitled animation" maxlength="100" required></label>
+    <div class="timing-fields"><label class="field">Duration (s)<input id="new-duration" type="number" min="0.1" max="3600" value="3" step="0.1" required></label><label class="field">Frame rate<select id="new-fps"><option value="24">24 fps</option><option value="30" selected>30 fps</option><option value="60">60 fps</option></select></label></div>
+    <p class="subtle">Starts with the current character and an empty timeline.</p>
+    <label class="checkbox-row"><input type="checkbox" id="keep-reference">Keep the current reference</label>
+    <button class="button primary full-width" type="submit">Create animation</button>
+  </form>
+</dialog>
+<dialog id="export-dialog" aria-labelledby="export-title">
+  <div class="dialog-heading"><h2 id="export-title">Export</h2><button class="icon-button" data-close="export-dialog" aria-label="Close export">×</button></div>
+  <button class="button primary full-width" id="export-glb"><span data-icon="download"></span>Download animated character (.glb)</button>
+  <p class="subtle">Includes the character, its rig, keyed motion and whole-character alignment.</p>
+  <label class="checkbox-row"><input type="checkbox" id="export-scene">Include scene objects in the GLB</label>
+  <h3>Video of the current view</h3>
+  <div class="timing-fields"><label class="field">Resolution<select id="export-quality"><option value="1080">1080p</option><option value="720" selected>720p</option></select></label><label class="field">Frame rate<select id="export-fps"><option value="30">30 fps</option><option value="60">60 fps</option></select></label></div>
+  <button class="button full-width" id="export-video"><span data-icon="download"></span>Export video</button>
+</dialog>
+<dialog id="help-dialog" aria-labelledby="help-title">
+  <div class="dialog-heading"><h2 id="help-title">Using the studio</h2><button class="icon-button" data-close="help-dialog" aria-label="Close help">×</button></div>
+  <p>Choose a reference to start an empty take with the same character. Import animation opens a rigged FBX or GLB motion with its model for editing. Your working character always comes from the reference.</p>
+  <p>Click a joint in the skeleton, including finger joints when available, then drag its rotation rings or translation arrows. Scale always targets the whole character. World and Local select the orientation of the gizmo.</p>
+  <p>Reset reference restores the original clip, linked playhead, normal playback speed, side-by-side view and display settings. Your animation keys and character alignment are kept.</p>
+  <p>Auto key records one pose when you release a gizmo. Turn it off to pose manually, then choose Key pose. Create your own keys and timing, and use Overlay to compare the motion.</p>
+  <p>Pose contains FK/IK limb controls and frame-range contact pins. Scene contains movable obstacles with grid snapping, duplication and dimensions. Study contains pose ghosts, trajectories, A–B loops, notes and saved takes for comparison.</p>
+  <p>Channels opens a timeline per joint. Curves lets you drag joint keys, change individual rotation or translation values and edit Bezier easing handles. Shift+F focuses the selected joint or object. Ctrl+D duplicates a selected scene object.</p>
+  <div class="shortcuts"><span><kbd>W</kbd> Move</span><span><kbd>E</kbd> Rotate</span><span><kbd>R</kbd> Scale character</span><span><kbd>K</kbd> Key pose</span><span><kbd>Space</kbd> Play / pause</span><span><kbd>F</kbd> Frame characters</span><span><kbd>Ctrl Z</kbd> Undo</span></div>
+</dialog>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

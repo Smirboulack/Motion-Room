@@ -1,0 +1,298 @@
+import { samplePoseKeys } from './pose-keys.js';
+import { channels, neutralTransform, writeJointKey, sampleJointTrack, channelValue, withChannelValue, defaultEase } from './joint-tracks.js';
+
+const svgNS = 'http://www.w3.org/2000/svg';
+const svgNode = (tag, attrs = {}, text = null) => {
+  const node = document.createElementNS(svgNS, tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  if (text !== null) node.textContent = text;
+  return node;
+};
+
+export class JointTimeline {
+  constructor(container, api) {
+    this.api = api; this.mode = 'closed'; this.channel = 'rz'; this.selectedFrame = 0;
+    container.innerHTML = `
+      <div class="joint-timeline-toolbar">
+        <select id="track-joint" aria-label="Timeline joint"></select>
+        <select id="track-channel" aria-label="Curve channel">${channels.map(([id, label]) => `<option value="${id}">${label}</option>`).join('')}</select>
+        <button class="button small" id="track-add">Key joint</button>
+        <select id="track-curve" aria-label="Joint interpolation"><option value="smooth">Smooth</option><option value="linear">Linear</option><option value="hold">Stepped</option><option value="bezier">Bezier</option></select>
+        <button class="icon-button" id="track-delete" aria-label="Delete joint key">×</button>
+      </div>
+      <div class="dope-sheet" id="dope-sheet" aria-label="Joint animation channels"></div>
+      <svg class="curve-graph" id="curve-graph" viewBox="0 0 640 145" role="group" aria-label="Animation curve. Drag a key or a Bezier handle."></svg>
+      <div class="curve-key-fields" id="curve-key-fields">
+        <label>Frame<input type="number" id="curve-frame" aria-label="Curve key frame" min="0" step="1"></label>
+        <label>Value<input type="number" id="curve-value" aria-label="Curve key value" step="0.1"></label>
+        <span class="bezier-fields" id="bezier-fields"><label>Out X<input type="number" id="ease-0" min="0" max="1" step="0.05"></label><label>Out Y<input type="number" id="ease-1" min="-3" max="4" step="0.05"></label><label>In X<input type="number" id="ease-2" min="0" max="1" step="0.05"></label><label>In Y<input type="number" id="ease-3" min="-3" max="4" step="0.05"></label></span>
+        <span class="curve-unit" id="curve-unit"></span>
+      </div>`;
+    this.container = container;
+    this.joint = container.querySelector('#track-joint'); this.channelSelect = container.querySelector('#track-channel');
+    this.curve = container.querySelector('#track-curve'); this.dope = container.querySelector('#dope-sheet');
+    this.svg = container.querySelector('#curve-graph'); this.fields = container.querySelector('#curve-key-fields');
+    this.channelSelect.value = this.channel;
+    this.joint.addEventListener('change', () => { this.id = this.joint.value; api.select(this.id); this.refresh(); });
+    this.channelSelect.addEventListener('change', () => { this.channel = this.channelSelect.value; this.drawGraph(); this.updateFields(); });
+    container.querySelector('#track-add').addEventListener('click', () => this.addKey());
+    container.querySelector('#track-delete').addEventListener('click', () => this.deleteKey());
+    this.curve.addEventListener('change', () => this.setCurve(this.curve.value));
+    container.querySelector('#curve-frame').addEventListener('change', event => this.moveKey(event.target.valueAsNumber));
+    container.querySelector('#curve-value').addEventListener('change', event => {
+      if (!Number.isFinite(event.target.valueAsNumber)) return;
+      this.editKey(key => { key.transform = withChannelValue(key.transform, this.channel, event.target.valueAsNumber); });
+    });
+    for (let i = 0; i < 4; i++) container.querySelector('#ease-' + i).addEventListener('change', event => {
+      const value = event.target.valueAsNumber;
+      if (!Number.isFinite(value)) return;
+      this.editKey(key => { key.curve = 'bezier'; key.ease ??= [...defaultEase]; key.ease[i] = Math.max(i % 2 ? -3 : 0, Math.min(i % 2 ? 4 : 1, value)); });
+    });
+    this.svg.addEventListener('pointerdown', event => this.beginDrag(event, 'graph'));
+    this.svg.addEventListener('keydown', event => {
+      const key = event.target.closest('[data-frame]');
+      if (key && ['Enter', ' '].includes(event.key)) {
+        event.preventDefault(); event.stopPropagation(); this.selectedFrame = Number(key.dataset.frame);
+        this.api.seek(this.selectedFrame); this.drawGraph(); this.updateFields();
+      }
+    });
+    this.dope.addEventListener('pointerdown', event => this.beginDrag(event, 'dope'));
+    for (const target of [this.svg, this.dope]) {
+      target.addEventListener('pointermove', event => this.drag(event));
+      target.addEventListener('pointerup', event => this.endDrag(event));
+      target.addEventListener('pointercancel', event => this.endDrag(event));
+    }
+  }
+
+  get state() { return this.api.getState(); }
+  get track() { return this.state.tracks[this.id] ?? []; }
+
+  ensureTrack(id = this.id) {
+    if (this.state.tracks[id]) return;
+    this.state.tracks[id] = this.state.keys.map(key => ({ frame: key.frame,
+      transform: structuredClone(samplePoseKeys(this.state.keys, key.frame)[id] ?? neutralTransform()),
+      curve: key.curve, ...(key.ease ? { ease: [...key.ease] } : {}),
+    }));
+  }
+
+  addKey() {
+    if (!this.id) return;
+    const frame = Math.round(this.state.frame);
+    const transform = samplePoseKeys(this.state.keys, frame, this.state.tracks)[this.id] ?? neutralTransform();
+    this.selectedFrame = frame;
+    this.api.commit(() => {
+      this.ensureTrack();
+      this.state.tracks[this.id] = writeJointKey(this.track, frame, transform, this.curve.value);
+    });
+  }
+
+  editKey(change) {
+    if (!this.track.some(key => key.frame === this.selectedFrame)) return;
+    this.api.commit(() => {
+      const track = structuredClone(this.track);
+      change(track.find(key => key.frame === this.selectedFrame));
+      this.state.tracks[this.id] = track;
+    });
+  }
+
+  setCurve(curve) { this.editKey(key => { key.curve = curve; if (curve === 'bezier') key.ease ??= [...defaultEase]; }); }
+
+  moveKey(frame) {
+    if (!Number.isInteger(frame) || frame < 0 || frame > this.state.frames || this.track.some(key => key.frame === frame && frame !== this.selectedFrame)) return;
+    const previous = this.selectedFrame;
+    if (!this.track.some(key => key.frame === previous)) return;
+    this.api.commit(() => {
+      this.state.tracks[this.id] = this.track.map(key => key.frame === previous ? { ...key, frame } : key).sort((a, b) => a.frame - b.frame);
+      this.selectedFrame = frame; this.state.frame = frame;
+    });
+  }
+
+  deleteKey() {
+    if (!this.track.some(key => key.frame === this.selectedFrame)) return false;
+    this.api.commit(() => {
+      this.state.tracks[this.id] = this.track.filter(key => key.frame !== this.selectedFrame);
+      if (!this.state.tracks[this.id].length) {
+        delete this.state.tracks[this.id];
+        this.state.keys = this.state.keys.map(key => { const pose = { ...key.pose }; delete pose[this.id]; return { ...key, pose }; });
+      }
+    });
+    return true;
+  }
+
+  setMode(mode) {
+    this.mode = this.mode === mode ? 'closed' : mode;
+    document.querySelector('.workspace').classList.toggle('advanced-open', this.mode !== 'closed');
+    this.container.hidden = this.mode === 'closed';
+    this.refresh();
+  }
+
+  refresh() {
+    if (this.dragging || !this.state.editor) return;
+    const editor = this.state.editor;
+    if (editor.bones.has(this.state.target)) this.id = this.state.target;
+    if (!editor.bones.has(this.id)) this.id = editor.bones.keys().next().value;
+    this.joint.replaceChildren(...[...editor.bones].map(([id, bone]) => new Option(bone.name.replace(/^mixamorig[:_]?/i, '').replaceAll('_', ' '), id, false, id === this.id)));
+    this.dope.hidden = this.mode !== 'channels'; this.svg.toggleAttribute('hidden', this.mode !== 'curves');
+    this.fields.hidden = this.mode !== 'curves'; this.channelSelect.hidden = this.mode !== 'curves';
+    this.selectedFrame = this.track.some(key => key.frame === Math.round(this.state.frame)) ? Math.round(this.state.frame) : this.selectedFrame;
+    for (const button of document.querySelectorAll('[data-timeline-mode]')) button.setAttribute('aria-pressed', button.dataset.timelineMode === this.mode);
+    this.drawRows(); this.drawGraph(); this.updateFields();
+  }
+
+  drawRows() {
+    const ids = new Set([this.id, ...Object.keys(this.state.tracks), ...this.state.keys.flatMap(key => Object.keys(key.pose))]);
+    const rows = [];
+    for (const id of ids) {
+      const bone = this.state.editor.bones.get(id); if (!bone) continue;
+      const row = document.createElement('div'); row.className = 'dope-row' + (id === this.id ? ' selected' : '');
+      const label = document.createElement('button'); label.className = 'dope-joint'; label.type = 'button';
+      label.textContent = bone.name.replace(/^mixamorig[:_]?/i, '').replaceAll('_', ' ');
+      label.addEventListener('click', () => { this.id = id; this.api.select(id); this.refresh(); });
+      const lane = document.createElement('div'); lane.className = 'dope-lane'; lane.dataset.joint = id;
+      const track = this.state.tracks[id] ?? this.state.keys.map(key => ({ frame: key.frame }));
+      for (const key of track) {
+        const dot = document.createElement('button'); dot.className = 'dope-key'; dot.type = 'button';
+        dot.dataset.frame = key.frame; dot.dataset.joint = id;
+        dot.style.left = key.frame / this.state.frames * 100 + '%';
+        dot.setAttribute('aria-label', bone.name + ' key at frame ' + key.frame);
+        dot.addEventListener('keydown', event => { if (event.key === 'Enter') { this.id = id; this.selectedFrame = key.frame; this.api.select(id); this.api.seek(key.frame); } });
+        lane.append(dot);
+      }
+      const cursor = document.createElement('span'); cursor.className = 'dope-playhead'; cursor.style.left = this.state.frame / this.state.frames * 100 + '%'; lane.append(cursor);
+      row.append(label, lane); rows.push(row);
+    }
+    if (!rows.length) { const text = document.createElement('p'); text.textContent = 'Select a joint and choose Key joint to create a channel.'; rows.push(text); }
+    this.dope.replaceChildren(...rows);
+  }
+
+  drawGraph() {
+    if (!this.state.editor || this.mode !== 'curves') return;
+    const track = this.track;
+    const values = track.map(key => channelValue(key.transform, this.channel));
+    let min = Math.min(0, ...values), max = Math.max(0, ...values);
+    const pad = Math.max(this.channel[0] === 'r' ? 5 : 0.05, (max - min) * 0.22);
+    min -= pad; max += pad;
+    this.bounds = { min, max, left: 48, right: 620, top: 10, bottom: 122 };
+    const b = this.bounds, x = frame => b.left + frame / this.state.frames * (b.right - b.left);
+    const y = value => b.bottom - (value - min) / (max - min) * (b.bottom - b.top);
+    const nodes = [];
+    for (let i = 0; i <= 4; i++) {
+      const value = min + (max - min) * i / 4;
+      nodes.push(svgNode('line', { x1: b.left, x2: b.right, y1: y(value), y2: y(value), class: 'curve-grid' }));
+      nodes.push(svgNode('text', { x: b.left - 7, y: y(value) + 3, 'text-anchor': 'end', class: 'curve-label' }, Number(value.toFixed(2))));
+      const frame = Math.round(this.state.frames * i / 4);
+      nodes.push(svgNode('text', { x: x(frame), y: 139, 'text-anchor': 'middle', class: 'curve-label' }, frame));
+    }
+    if (track.length) {
+      const count = Math.min(320, Math.max(80, this.state.frames));
+      const points = [];
+      let previous;
+      for (let i = 0; i <= count; i++) {
+        const frame = this.state.frames * i / count;
+        let value = channelValue(sampleJointTrack(track, frame), this.channel);
+        if (this.channel[0] === 'r' && previous !== undefined) { while (value - previous > 180) value -= 360; while (value - previous < -180) value += 360; }
+        previous = value;
+        points.push(x(frame) + ',' + y(value));
+      }
+      nodes.push(svgNode('polyline', { points: points.join(' '), class: 'curve-line' }));
+      const index = track.findIndex(key => key.frame === this.selectedFrame), key = track[index], next = track[index + 1];
+      if (key?.curve === 'bezier' && next) {
+        const ease = key.ease ?? defaultEase, a = channelValue(key.transform, this.channel), d = channelValue(next.transform, this.channel) - a;
+        if (Math.abs(d) > 1e-8) for (let handle = 0; handle < 2; handle++) {
+          const hx = x(key.frame + (next.frame - key.frame) * ease[handle * 2]);
+          const hy = y(a + d * ease[handle * 2 + 1]);
+          nodes.push(svgNode('line', { x1: x(handle ? next.frame : key.frame), y1: y(handle ? a + d : a), x2: hx, y2: hy, class: 'curve-handle-line' }));
+          nodes.push(svgNode('circle', { cx: hx, cy: hy, r: 5, class: 'curve-handle', 'data-handle': handle }));
+        }
+      }
+      for (const key of track) nodes.push(svgNode('circle', { cx: x(key.frame), cy: y(channelValue(key.transform, this.channel)), r: 4.5,
+        class: 'curve-key' + (key.frame === this.selectedFrame ? ' selected' : ''), 'data-frame': key.frame, tabindex: 0, role: 'button', 'aria-label': 'Curve key at frame ' + key.frame }));
+    } else nodes.push(svgNode('text', { x: 330, y: 67, 'text-anchor': 'middle', class: 'curve-empty' }, 'Key this joint to edit its animation curve'));
+    nodes.push(svgNode('line', { x1: x(this.state.frame), x2: x(this.state.frame), y1: 8, y2: 123, class: 'curve-cursor' }));
+    this.svg.replaceChildren(...nodes);
+  }
+
+  updateFields() {
+    const key = this.track.find(key => key.frame === this.selectedFrame);
+    this.curve.value = key?.curve ?? 'smooth';
+    for (const input of this.fields.querySelectorAll('input')) input.disabled = !key;
+    this.container.querySelector('#track-delete').disabled = !key;
+    this.container.querySelector('#curve-frame').value = key?.frame ?? Math.round(this.state.frame);
+    this.container.querySelector('#curve-frame').max = this.state.frames;
+    this.container.querySelector('#curve-value').value = key ? Number(channelValue(key.transform, this.channel).toFixed(3)) : 0;
+    this.container.querySelector('#bezier-fields').hidden = key?.curve !== 'bezier';
+    const ease = key?.ease ?? defaultEase;
+    for (let i = 0; i < 4; i++) this.container.querySelector('#ease-' + i).value = Number(ease[i].toFixed(3));
+    this.container.querySelector('#curve-unit').textContent = channels.find(item => item[0] === this.channel)?.[2] || 'rig units';
+  }
+
+  beginDrag(event, source) {
+    if (event.button !== 0 || !this.api.canEdit()) return;
+    const target = event.target.closest('[data-frame], [data-handle]');
+    if (!target) {
+      if (source === 'graph') { const p = this.point(event); this.api.seek(Math.round((p.x - 48) / 572 * this.state.frames)); }
+      return;
+    }
+    event.preventDefault();
+    const laneBounds = source === 'dope' ? target.closest('.dope-lane').getBoundingClientRect() : null;
+    if (source === 'dope') { this.id = target.dataset.joint; this.api.select(this.id); }
+    if (target.dataset.frame !== undefined) this.selectedFrame = Number(target.dataset.frame);
+    this.api.seek(this.selectedFrame);
+    this.api.begin(); this.dragging = true;
+    const effective = this.state.tracks[this.id] ?? this.state.keys.map(key => ({ frame: key.frame,
+      transform: structuredClone(samplePoseKeys(this.state.keys, key.frame)[this.id] ?? neutralTransform()), curve: key.curve, ...(key.ease ? { ease: [...key.ease] } : {}) }));
+    this.dragState = { source, pointer: event.pointerId, frame: this.selectedFrame, track: structuredClone(effective),
+      handle: target.dataset.handle !== undefined ? Number(target.dataset.handle) : null,
+      lane: laneBounds,
+      bounds: { ...this.bounds }, selected: this.selectedFrame };
+    (source === 'graph' ? this.svg : this.dope).setPointerCapture(event.pointerId);
+    this.drawGraph(); this.updateFields();
+  }
+
+  point(event) {
+    const matrix = this.svg.getScreenCTM();
+    if (matrix) return new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    const bounds = this.svg.getBoundingClientRect();
+    return { x: (event.clientX - bounds.left) / bounds.width * 640, y: (event.clientY - bounds.top) / bounds.height * 145 };
+  }
+
+  drag(event) {
+    const drag = this.dragState; if (!drag || event.pointerId !== drag.pointer) return;
+    event.preventDefault();
+    const track = structuredClone(drag.track), index = track.findIndex(key => key.frame === drag.frame), key = track[index];
+    if (!key) return;
+    let frame = drag.frame;
+    if (drag.handle !== null) {
+      const p = this.point(event), b = drag.bounds, next = track[index + 1]; if (!next) return;
+      const a = channelValue(key.transform, this.channel), d = channelValue(next.transform, this.channel) - a;
+      if (Math.abs(d) < 1e-8) return;
+      key.curve = 'bezier'; key.ease ??= [...defaultEase];
+      const time = (p.x - b.left) / (b.right - b.left) * this.state.frames;
+      const value = b.min + (b.bottom - p.y) / (b.bottom - b.top) * (b.max - b.min);
+      key.ease[drag.handle * 2] = Math.max(0, Math.min(1, (time - key.frame) / (next.frame - key.frame)));
+      key.ease[drag.handle * 2 + 1] = Math.max(-3, Math.min(4, (value - a) / d));
+    } else {
+      const p = drag.source === 'graph' ? this.point(event) : null, b = drag.bounds;
+      const amount = p ? (p.x - b.left) / (b.right - b.left) : (event.clientX - drag.lane.left) / drag.lane.width;
+      frame = Math.max(0, Math.min(this.state.frames, Math.round(amount * this.state.frames)));
+      if (track.some((item, i) => i !== index && item.frame === frame)) return;
+      key.frame = frame;
+      if (p) key.transform = withChannelValue(key.transform, this.channel,
+        b.min + (b.bottom - p.y) / (b.bottom - b.top) * (b.max - b.min));
+    }
+    this.selectedFrame = frame;
+    this.api.preview(() => { this.state.tracks[this.id] = track.sort((a, b) => a.frame - b.frame); this.state.frame = frame; });
+    this.drawGraph(); this.drawRows(); this.updateFields();
+  }
+
+  endDrag(event) {
+    if (!this.dragState || event.pointerId !== this.dragState.pointer) return;
+    this.dragState = null; this.dragging = false; this.api.end(); this.refresh();
+  }
+
+  updateFrame(frame) {
+    for (const node of this.dope.querySelectorAll('.dope-playhead')) node.style.left = frame / this.state.frames * 100 + '%';
+    const x = 48 + frame / this.state.frames * 572;
+    const cursor = this.svg.querySelector('.curve-cursor'); if (cursor) { cursor.setAttribute('x1', x); cursor.setAttribute('x2', x); }
+  }
+}

@@ -46,9 +46,14 @@ The Fab license distinguishes incorporating assets into a project from redistrib
 | Walk cycle | `M_Relaxed_Walk_Loop_F` | Complete gait cycle with source travel |
 | Run | `M_Relaxed_Run_Loop_F` | Complete gait cycle with source travel |
 | Sprint | `M_Relaxed_Sprint_Loop_F` | Two-step cycle |
+| Running vault | `M_Neutral_Traversal_Hurdle_1_0_run_F_V2_Rfoot` | Right-hand-supported excerpt, source frames 26–108 at 60 fps; horizontal origin rebased, source elevation retained |
+| Running hurdle | `M_Neutral_Traversal_Hurdle_1_0_run_F_Rfoot` | Hands-free excerpt, source frames 14–92 at 60 fps; horizontal origin rebased |
+| Running mantle | `M_Neutral_Traversal_Mantle_1_0_run_F_Lfoot` | Raised-platform excerpt, source frames 8–82 at 60 fps; horizontal origin rebased, one-metre source rise retained |
 | Forward roll | `M_Neutral_Jump_F_Land_Roll_Rfoot` | Landing, forward roll and recovery |
 
 The head-turn motion is an adapted study, not an unmodified Epic performance. The character remains externally sourced.
+
+The traversal files were exported from the locally acquired Unreal sample with the tools in `tools/`. Their local display names describe the actions: Epic stores both the supported vault and hands-free hurdle in its `Traversal/Hurdle` folder. The performances retain their original timing; these are fixed animation excerpts, not a reproduction of the sample's runtime Motion Matching or motion warping. Procedural obstacles are fitted in Motion Room's normalized character coordinates. Rendered trailer footage is credited separately in `video/public/ASSET_CREDITS.md`; the editable source assets remain subject to the restrictions above.
 
 ## Mesh2Motion
 

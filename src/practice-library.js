@@ -1,6 +1,7 @@
 export const groups = [
   { id: 'fundamentals', name: 'Fundamentals' },
   { id: 'locomotion', name: 'Locomotion' },
+  { id: 'traversal', name: 'Obstacle traversal' },
   { id: 'performance', name: 'Action and performance' },
 ];
 
@@ -14,6 +15,9 @@ export const studies = [
   { id: 'marche', group: 'locomotion', title: 'Walk cycle', skill: 'Contact and counter-swing', icon: 'walk', view: 'side' },
   { id: 'course', group: 'locomotion', title: 'Run', skill: 'Flight and rhythm', icon: 'run', view: 'side' },
   { id: 'sprint', group: 'locomotion', title: 'Sprint', skill: 'Drive and fast contacts', icon: 'run', view: 'side' },
+  { id: 'vault', group: 'traversal', title: 'Running vault', skill: 'Hand support and clearance', icon: 'jump', view: 'side' },
+  { id: 'hurdle', group: 'traversal', title: 'Running hurdle', skill: 'Takeoff, clearance and landing', icon: 'jump', view: 'side' },
+  { id: 'mantle', group: 'traversal', title: 'Running mantle', skill: 'Climb onto a raised platform', icon: 'squat', view: 'side' },
   { id: 'poing', group: 'performance', title: 'Punch', skill: 'Weight transfer and impact', icon: 'punch', view: 'perspective' },
   { id: 'pied', group: 'performance', title: 'Kick', skill: 'Chamber and extension', icon: 'kick', view: 'perspective' },
   { id: 'roulade', group: 'performance', title: 'Forward roll', skill: 'Tucking and rotation', icon: 'roll', view: 'side' },

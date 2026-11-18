@@ -71,6 +71,33 @@ export const productionReferences = {
     url: './references/epic/sprint.glb',
     marks: markTimes({ 'left-contact': 0, 'flight-one': 12, 'right-contact': 18, 'flight-two': 29, 'next-contact': 36 }),
   },
+  vault: {
+    ...epic,
+    title: 'Running vault',
+    url: './references/epic/vault.glb',
+    observe: 'Watch the right hand support the body on the wall while both legs clear it. Source travel is enabled and the wall is already placed. The take starts with the source animation so you can edit its offsets.',
+    scene: {
+      props: [{ id: 'vault-wall', type: 'lowWall', name: 'Vault wall · 1.12 m', position: [0, 0, 3.32], rotation: [0, 0, 0], scale: [1, 1.2872, 1.25] }],
+    },
+  },
+  hurdle: {
+    ...epic,
+    title: 'Running hurdle',
+    url: './references/epic/hurdle.glb',
+    observe: 'Compare this hands-free hurdle with the supported vault. Follow the lead leg, trailing foot and first landing contact. Source travel and a fitted hurdle are enabled.',
+    scene: {
+      props: [{ id: 'running-hurdle', type: 'hurdle', name: 'Hurdle · 1.10 m', position: [0, 0, 3.55], rotation: [0, 0, 0], scale: [1.2, 1.0476, 1] }],
+    },
+  },
+  mantle: {
+    ...epic,
+    title: 'Running mantle',
+    url: './references/epic/mantle.glb',
+    observe: 'Both hands lead onto the raised deck. The hips rise and the run continues on the higher surface. Keep source travel enabled to preserve the hand and foot placement.',
+    scene: {
+      props: [{ id: 'mantle-deck', type: 'platform', name: 'Raised deck · 1.12 m', position: [0, 0, 5.5], rotation: [0, 0, 0], scale: [1.4, 2.3874, 3.3333] }],
+    },
+  },
   roulade: {
     ...epic,
     title: 'Forward roll and recovery',

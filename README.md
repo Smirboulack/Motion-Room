@@ -17,6 +17,7 @@ The application is **completely free to use**, with no account, subscription or 
 | Tool | Use it to |
 | --- | --- |
 | Reference comparison | View your animation and a reference side by side, overlay them, or work solo. |
+| Obstacle traversal studies | Edit a running vault, hands-free hurdle or mantle from the Game Animation Sample, with fitted obstacles and source travel. |
 | Visible rigs | Select joints directly, including finger bones when available, and pose them with translation and rotation gizmos. |
 | IK and contact pins | Move a hand or foot target to pose a limb, and hold contacts over a chosen frame range. |
 | Joint channels and curves | Adjust individual joint timing and shape interpolation with smooth, linear, stepped or Bézier curves. |
@@ -32,6 +33,8 @@ The application is **completely free to use**, with no account, subscription or 
 | Portable projects | Save and reopen a `.motionroom` file containing editable work, original assets, reference footage, notes and saved takes. |
 
 You choose how closely to follow a reference and when a take is finished. New practice takes start with **zero keys**. There are no scores, required poses or automatic assessments.
+
+The library contains **16 studies**, including separate walk, run and sprint cycles. The three obstacle studies open with editable source motion, a fitted wall, hurdle or raised deck, and visible root travel. Camera views frame the complete animated take. Obstacle dimensions are editable; changing them does not automatically warp the source motion. See the [local traversal import workflow](tools/README.md) for provenance and regeneration.
 
 ## Getting started
 
@@ -161,6 +164,12 @@ See [testing notes](docs/TESTING.md) for covered workflows and fixtures.
 | `tests/` | Import, posing, IK, contacts, timing, geometry, export and compatibility checks |
 
 Some tests load reference assets from this workspace, including the archived mannequin. The full suite requires those fixtures; their licenses are listed in [Third-party notices](THIRD_PARTY_NOTICES.md).
+
+## Product video
+
+An English product trailer and social cuts are built with React / Remotion in [`video/`](video/README.md). The production project includes real application captures, an original score, a YouTube thumbnail and English publishing copy. Its dependencies are isolated from the studio application.
+
+See the [video production guide](video/README.md) to preview or render the 16:9 YouTube, 4:5 X and 9:16 Shorts versions.
 
 ## Contributing
 

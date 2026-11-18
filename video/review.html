@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion Room — Trailer review</title>
+<style>
+  :root{color-scheme:dark;font-family:Inter,"Segoe UI",sans-serif;background:#10151b;color:#f4f6ee}*{box-sizing:border-box}body{margin:0;padding:32px}main{max-width:1160px;margin:auto}header{display:flex;align-items:center;gap:16px;margin-bottom:28px}header img{width:64px;height:64px}h1{font-size:28px;letter-spacing:-1px;margin:0}p{color:#a6b6bd;line-height:1.6}nav{display:flex;flex-wrap:wrap;gap:10px;margin:24px 0}button,a.download{border:1px solid #34444d;background:#1a242c;color:#f4f6ee;padding:12px 18px;border-radius:9px;cursor:pointer;text-decoration:none;font:inherit}button[aria-pressed=true],a.download{color:#10151b;background:#c3ef91;border-color:#c3ef91}section{background:#182028;border:1px solid #34444d;border-radius:16px;padding:16px;display:grid;justify-items:center}video{max-width:100%;max-height:76vh;display:block;border-radius:8px}footer{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:22px 0}#technical{font-family:Consolas,monospace;font-size:13px;color:#a6b6bd}a{color:#c3ef91}button:focus-visible,a:focus-visible{outline:2px solid #70d9ff;outline-offset:4px}
+</style>
+<main>
+  <header><img src="public/brand/motion-room.png" alt="Motion Room logo"><div><h1>Motion Room / product trailer</h1><p>Run. Sprint. Vault. Nine movement studies, real application footage and original music.</p></div></header>
+  <nav aria-label="Video versions">
+    <button data-file="motion-room-youtube-1080p.mp4" aria-pressed="true">YouTube · 54 seconds · 16:9</button>
+    <button data-file="motion-room-x-1080x1350.mp4" aria-pressed="false">X · 36 seconds · 4:5</button>
+    <button data-file="motion-room-shorts-1080x1920.mp4" aria-pressed="false">YouTube Shorts · 36 seconds · 9:16</button>
+  </nav>
+  <section aria-label="Video preview"><video id="preview" controls preload="metadata" poster="out/motion-room-youtube-thumbnail.jpg"><source src="out/motion-room-youtube-1080p.mp4" type="video/mp4"></video></section>
+  <footer><button id="play-preview">Play preview</button><a class="download" id="download-video" href="out/motion-room-youtube-1080p.mp4" download>Download MP4</a><a href="out/motion-room-youtube-thumbnail.jpg" download>Download thumbnail</a><a href="publishing.md">English posting copy</a></footer>
+  <p id="technical" role="status">Loading video metadata…</p>
+  <p>The editable React / Remotion source is in <a href="README.md">this production project</a>. The application is at <a href="https://github.com/Smirboulack/Motion-Room">github.com/Smirboulack/Motion-Room</a>.</p>
+</main>
+<script>
+  const video=document.getElementById('preview'),info=document.getElementById('technical');
+  document.getElementById('play-preview').addEventListener('click',()=>video.paused?video.play():video.pause());
+  video.addEventListener('play',()=>document.getElementById('play-preview').textContent='Pause preview');
+  video.addEventListener('pause',()=>document.getElementById('play-preview').textContent='Play preview');
+  video.addEventListener('loadedmetadata',()=>{info.textContent=`${video.videoWidth} × ${video.videoHeight} · ${video.duration.toFixed(2)} seconds · H.264 / AAC · English text + original music`;});
+  for(const button of document.querySelectorAll('[data-file]'))button.addEventListener('click',()=>{video.pause();for(const item of document.querySelectorAll('[data-file]'))item.setAttribute('aria-pressed',item===button);video.removeAttribute('poster');video.src='out/'+button.dataset.file;document.getElementById('download-video').href=video.src;video.load();});
+</script>
+</html>

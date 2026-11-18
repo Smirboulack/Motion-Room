@@ -1,0 +1,122 @@
+{
+  "analysis": {
+    "frames": 148,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "comparison": {
+    "frames": 148,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "hero": {
+    "frames": 148,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "hurdle": {
+    "frames": 39,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "jump": {
+    "frames": 28,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "landing": {
+    "frames": 28,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "mantle": {
+    "frames": 37,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "overlay": {
+    "frames": 148,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "roll": {
+    "frames": 33,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "run-analysis": {
+    "frames": 43,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "run-comparison": {
+    "frames": 43,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "run-overlay": {
+    "frames": 43,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "run": {
+    "frames": 43,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "scene": {
+    "frames": 148,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "sprint-front": {
+    "frames": 18,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "sprint": {
+    "frames": 18,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "vault-side": {
+    "frames": 41,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "vault": {
+    "frames": 41,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "walk-comparison": {
+    "frames": 61,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "walk": {
+    "frames": 61,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  }
+}

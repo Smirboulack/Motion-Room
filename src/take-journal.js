@@ -8,11 +8,11 @@ const mediaIdentity = record => JSON.stringify([record.mediaReference?.name, rec
 export function journalTake(storage, record) {
   const { name, poses, draft, frames, fps, cursor, alignment, clipIndex,
     referenceIndex, clipTakes, savedAt, editRevision, tracks, contacts, props, analysis,
-    training, notes, takes, sceneSnap, mediaReference, poseLibrary } = record;
+    training, notes, takes, sceneSnap, rootMotion, layout, mediaReference, poseLibrary } = record;
   storage.setItem(keyFor(record), JSON.stringify({
     identity: identity(record), mediaIdentity: mediaIdentity(record), name, poses, draft, frames, fps, cursor, alignment,
     clipIndex, referenceIndex, clipTakes, savedAt, editRevision,
-    tracks, contacts, props, analysis, training, notes, takes, sceneSnap, mediaReference, poseLibrary,
+    tracks, contacts, props, analysis, training, notes, takes, sceneSnap, rootMotion, layout, mediaReference, poseLibrary,
   }));
 }
 

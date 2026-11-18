@@ -356,12 +356,12 @@ export class Stage {
     }
   }
 
-  setView(view = 'perspective') {
+  setView(view = 'perspective', motionBounds = null) {
     if (this.gizmo.dragging) return;
     this.controls.enableDamping = false;
     this.controls.update();
     this.updateActors();
-    const bounds = new THREE.Box3();
+    const bounds = motionBounds?.clone() ?? new THREE.Box3();
     if (this.editor) bounds.expandByObject(this.editor.root, true);
     if (this.sourceRoot && this.sourceLane.visible) bounds.expandByObject(this.sourceRoot, true);
     if (this.sceneObjects.objects.size) bounds.expandByObject(this.sceneObjects.group, true);

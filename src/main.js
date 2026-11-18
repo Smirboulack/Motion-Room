@@ -1,4 +1,4 @@
-import { Quaternion, Euler } from 'three';
+import { Quaternion, Euler, Box3 } from 'three';
 import { Stage } from './stage.js';
 import { icon, mountIcons } from './icons.js';
 import { loadCharacter, loadReference, referenceSeconds } from './reference.js';
@@ -123,6 +123,7 @@ function captureRecord() {
     referenceSource: state.reference?.source ?? null,
     tracks: state.tracks, contacts: state.contacts, props: state.props, analysis: state.analysis,
     training: state.training, notes: state.notes, takes: state.takes, sceneSnap: state.sceneSnap,
+    rootMotion: $('root-motion').checked, layout: state.layout,
     mediaBlob: state.mediaBlob, mediaReference: state.mediaReference, poseLibrary: state.poseLibrary,
   };
 }
@@ -249,6 +250,9 @@ function installRuntime(runtime) {
     poseLibrary: [...new Map([...state.poseLibrary, ...restorePoseLibrary(record.poseLibrary)].map(item => [item.id, item])).values()],
   });
   $('loading').hidden = true;
+  $('root-motion').checked = record.rootMotion === undefined
+    ? record.sourceMode === 'clip' && Boolean(record.contacts?.length) : Boolean(record.rootMotion);
+  if (['side', 'overlay', 'solo'].includes(record.layout)) state.layout = record.layout;
   const target = [...editor.bones].find(([, bone]) => state.studyId === 'regard'
     ? /head(?:_\d+)?$/i.test(bone.name) : /(hips|pelvis)(?:_\d+)?$/i.test(bone.name));
   state.target = target?.[0] ?? 'character';
@@ -288,7 +292,9 @@ async function loadStudy(id) {
         schema: 2, kind: 'practice', id, studyId: id, name: studies.find(item => item.id === id).title + ' take',
         assetBlob: blob, assetName: descriptor.title, referenceBlob: blob,
         referenceName: descriptor.title, referenceSource: descriptor,
-        sourceMode: 'blank', fps, poses: [], characterVersion: 'reference',
+        sourceMode: descriptor.scene ? 'clip' : 'blank', fps, poses: [], characterVersion: 'reference',
+        props: descriptor.scene?.props ?? [], rootMotion: Boolean(descriptor.scene),
+        ...(descriptor.scene ? { layout: 'solo' } : {}),
       };
     }
     // Preserve older personal-character studies as projects before returning to the reference rig.
@@ -621,7 +627,29 @@ function updateControls() {
 }
 
 function setCamera(view = study()?.view ?? 'perspective') {
-  stage.setView(view);
+  let bounds;
+  // Fit the complete animated take: jumping still needs vertical space with
+  // horizontal root travel locked. Restore the pose without moving a playhead.
+  if (state.editor && (state.editor.sourceMode === 'clip' || $('root-motion').checked)) {
+    bounds = new Box3();
+    const sourceTime = state.reference?.clip.action?.time;
+    try {
+      for (let step = 0; step <= 24; step++) {
+        const progress = step / 24;
+        state.editor.sample(state.keys, progress * state.frames, state.frames);
+        if (studio?.comparison) studio.sampleSource(progress * state.frames);
+        else state.reference?.clip.sample(progress * state.reference.clip.duration);
+        stage.updateActors();
+        bounds.expandByObject(state.editor.root, true);
+        if (stage.sourceRoot && stage.sourceLane.visible) bounds.expandByObject(stage.sourceRoot, true);
+      }
+      if (state.props.length) bounds.expandByObject(stage.sceneObjects.group, true);
+    } finally {
+      if (sourceTime !== undefined) state.reference.clip.sample(sourceTime);
+      draw();
+    }
+  }
+  stage.setView(view, bounds);
   for (const button of all('[data-view]')) {
     const active = button.dataset.view === view;
     button.classList.toggle('active', active);
@@ -645,7 +673,7 @@ function resetReference() {
   state.reference.clip.select(index);
   stage.resetReferenceOrigin();
   for (const id of ['character-spacing', 'ghost-opacity']) $(id).value = $(id).defaultValue;
-  $('root-motion').checked = $('root-motion').defaultChecked;
+  $('root-motion').checked = Boolean(state.reference.source?.scene);
   $('speed').value = '1';
   for (const id of ['loop', 'skeleton-toggle']) {
     $(id).classList.add('active');
@@ -979,6 +1007,7 @@ for (const button of all('[data-layout]')) button.addEventListener('click', () =
   updateComparison();
   setCamera();
   persistPreferences();
+  queueSave();
 });
 for (const button of all('[data-tool]')) button.addEventListener('click', () => setTool(button.dataset.tool));
 for (const button of all('[data-view]')) button.addEventListener('click', () => setCamera(button.dataset.view));
@@ -997,6 +1026,7 @@ $('skeleton-toggle').addEventListener('click', () => {
 for (const id of ['character-spacing', 'ghost-opacity', 'root-motion']) $(id).addEventListener('input', () => {
   updateComparison();
   if (id === 'character-spacing') setCamera();
+  if (id === 'root-motion') { setCamera(); queueSave(); }
 });
 $('character-scale').addEventListener('change', event => {
   const scale = event.target.valueAsNumber / 100;
@@ -1091,6 +1121,7 @@ $('new-form').addEventListener('submit', event => {
     referenceBlob: reference?.blob ?? null, referenceName: reference?.name,
     referenceSource: reference?.source, characterVersion: 'reference',
     props: state.props, sceneSnap: state.sceneSnap,
+    rootMotion: $('root-motion').checked, layout: state.layout,
   };
   $('new-dialog').close();
   void createProject(record);
@@ -1114,6 +1145,7 @@ $('edit-source').addEventListener('click', () => {
     referenceBlob: reference.blob, referenceName: reference.name + ' · original',
     referenceSource: reference.source, originalReference: true,
     sourceMode: 'clip', clipIndex: reference.clip.index, referenceIndex: reference.clip.index,
+    props: state.props, rootMotion: $('root-motion').checked, layout: state.layout,
     fps: 60, poses: [],
   });
 });

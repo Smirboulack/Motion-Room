@@ -19,12 +19,14 @@ const take = {
 
 test('an immediate reload recovers the last pose without duplicating the model file', () => {
   const store = storage();
-  const edited = { ...take, savedAt: 2, editRevision: 'gizmo', cursor: 60,
+  const edited = { ...take, savedAt: 2, editRevision: 'gizmo', cursor: 60, rootMotion: true, layout: 'solo',
     poses: [{ frame: 60, pose: { bone_0: { rotation: [0, 1, 0, 0] } } }] };
   journalTake(store, edited);
   const recovered = recoverTake(store, take);
   assert.deepEqual(recovered.poses, edited.poses);
   assert.equal(recovered.cursor, 60);
+  assert.equal(recovered.rootMotion, true);
+  assert.equal(recovered.layout, 'solo');
   assert.equal(recovered.assetBlob, take.assetBlob);
   assert.deepEqual(recoverTake(store, { ...take, assetName: 'Different rig' }).poses, []);
   assert.deepEqual(recoverTake(store, { ...take, savedAt: 3 }).poses, []);

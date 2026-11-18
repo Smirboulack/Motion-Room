@@ -85,7 +85,7 @@ export class StudioTools {
       <label class="field">Take name<input id="version-name" type="text" maxlength="80" placeholder="Take 1"></label>
       <div class="compact-actions"><button class="button small" id="save-version">Save take</button><button class="button small" id="new-attempt">New attempt</button></div>
       <label class="field">Compare against<select id="compare-take"></select></label>
-      <label class="field">Saved takes<select id="load-take-select"></select></label>
+      <label class="field">Saved takes<select id="load-take-select" aria-label="Saved takes"></select></label>
       <button class="button small full-width" id="load-version">Continue this take</button>
       <label class="field">My notes<textarea id="practice-notes" rows="3" maxlength="6000" placeholder="What I want to improve on my next take…"></textarea></label>`;
     const dialog = document.createElement('dialog'); dialog.id = 'object-dialog'; dialog.setAttribute('aria-labelledby', 'object-dialog-title');
@@ -97,7 +97,7 @@ export class StudioTools {
     for (const button of document.querySelectorAll('[data-inspector-tab]')) button.addEventListener('click', () => this.activateTab(button.dataset.inspectorTab));
     for (const button of document.querySelectorAll('[data-timeline-mode]')) button.addEventListener('click', () => {
       this.timeline.setMode(button.dataset.timelineMode);
-      requestAnimationFrame(() => { this.stage.resize(); this.stage.frameScene(); });
+      requestAnimationFrame(() => { this.stage.resize(); this.stage.invalidate(); });
     });
     $('pose-mode').addEventListener('change', () => {
       this.stage.setPoseMode($('pose-mode').value);
@@ -302,12 +302,12 @@ export class StudioTools {
     $('range-loop').checked = state.training.loop; $('hide-reference').checked = state.training.hideReference;
     $('practice-notes').value = state.notes;
     $('version-name').placeholder = 'Take ' + (state.takes.length + 1);
-    const versions = state.takes.filter(take => (take.clipIndex ?? 0) === Math.max(0, state.editor.reference.index));
+    const versions = state.takes;
     $('compare-take').replaceChildren(new Option('Original reference', 'original'), new Option('No comparison', 'none'),
-      ...versions.map(take => new Option(take.name, take.id)));
+      ...versions.map(take => new Option(this.takeLabel(take), take.id)));
     $('compare-take').value = state.training.compare;
     const selected = $('load-take-select').value;
-    $('load-take-select').replaceChildren(...versions.map(take => new Option(take.name, take.id, false, take.id === selected)));
+    $('load-take-select').replaceChildren(...versions.map(take => new Option(this.takeLabel(take), take.id, false, take.id === selected)));
     if (!versions.length) $('load-take-select').append(new Option('No saved takes yet', ''));
     $('load-version').disabled = !versions.length;
     this.updateFrame(state.frame);
@@ -323,6 +323,11 @@ export class StudioTools {
     return structuredClone({ id: crypto.randomUUID(), name, createdAt: Date.now(), keys: state.keys, tracks: state.tracks,
       contacts: state.contacts, props: state.props, frames: state.frames, fps: state.fps,
       alignment: state.editor.getAlignment(), clipIndex: Math.max(0, state.editor.reference.index), sourceMode: state.editor.sourceMode, notes: state.notes });
+  }
+
+  takeLabel(take) {
+    const clips = this.state.editor.reference.clips;
+    return clips.length > 1 ? take.name + ' · ' + (clips[take.clipIndex]?.name || 'Clip ' + ((take.clipIndex ?? 0) + 1)) : take.name;
   }
 
   saveTake(quiet = false) {
@@ -347,6 +352,12 @@ export class StudioTools {
   loadTake(id) {
     const take = this.state.takes.find(item => item.id === id); if (!take || !this.api.canEdit()) return;
     this.api.commit(() => {
+      const index = Math.max(0, take.clipIndex ?? 0);
+      if (this.state.editor.reference.clips.length && index !== this.state.editor.reference.index) this.state.editor.selectClip(index);
+      this.state.editor.sourceMode = take.sourceMode ?? this.state.editor.sourceMode;
+      if (this.state.record.originalReference && this.state.reference) {
+        this.state.reference.clip.select(index); this.stage.resetReferenceOrigin();
+      }
       Object.assign(this.state, structuredClone({ keys: take.keys, tracks: take.tracks, contacts: take.contacts, props: take.props, frames: take.frames, fps: take.fps, notes: take.notes ?? '' }), { draft: null, frame: 0 });
       this.state.editor.setAlignment(take.alignment);
       this.state.training = restoreTraining(this.state.training, this.state.frames);
@@ -397,13 +408,14 @@ export class StudioTools {
   }
 
   updateEnabled(enabled, loading) {
-    for (const input of document.querySelectorAll('#scene-tools input, #scene-tools select, #scene-tools button, #ik-tools button, #ik-tools input, #ik-tools select, .joint-timeline-toolbar button, .joint-timeline-toolbar select, .curve-key-fields input, #save-version, #new-attempt, #load-version, #version-name')) input.disabled = !enabled;
+    for (const input of document.querySelectorAll('#scene-tools input, #scene-tools select, #scene-tools button, #ik-tools button, #ik-tools input, #ik-tools select, .joint-timeline-toolbar button, .joint-timeline-toolbar select, .curve-key-fields input, .timeline-batch-toolbar button, .timeline-batch-toolbar input, #save-version, #new-attempt, #load-version, #version-name')) input.disabled = !enabled;
     for (const button of document.querySelectorAll('#add-object, [data-timeline-mode]')) button.disabled = loading;
     if (enabled) {
       const available = this.state.editor?.ikChains.size;
       for (const id of ['pose-mode', 'ik-limb', 'ik-flip', 'pin-contact']) $(id).disabled = !available;
       $('load-version').disabled = !$('load-take-select').value;
       this.timeline.updateFields();
+      this.timeline.updateBatch();
     }
   }
 }

@@ -1,10 +1,8 @@
-import { Quaternion, Euler, Group } from 'three';
-import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
+import { Quaternion, Euler } from 'three';
 import { Stage } from './stage.js';
-import { CanvasRecorder } from './recorder.js';
 import { icon, mountIcons } from './icons.js';
 import { loadCharacter, loadReference, referenceSeconds } from './reference.js';
-import { PoseAnimation, exportAnimation, retimeKeys } from './animation-editor.js';
+import { PoseAnimation, retimeKeys } from './animation-editor.js';
 import { samplePoseKeys, restorePoseKeys, writePoseKey } from './pose-keys.js';
 import { studies, groups } from './practice-library.js';
 import { productionReferences } from './reference-catalog.js';
@@ -12,6 +10,14 @@ import { readReference, saveReference } from './reference-store.js';
 import { journalTake, recoverTake, confirmTake } from './take-journal.js';
 import { StudioTools, restoreStudioData, defaultAnalysis, restoreTraining } from './studio-tools.js';
 import { retimeTracks, writeJointKey } from './joint-tracks.js';
+import { packProject, unpackProject, projectFilename } from './project-file.js';
+import { SaveQueue } from './persistence.js';
+import { captureEdit, rememberEdit, travelHistory } from './edit-history.js';
+import { ProjectManager } from './project-manager.js';
+import { PoseTools, restorePoseLibrary } from './pose-tools.js';
+import { MediaReference, restoreMediaSettings } from './media-reference.js';
+import { WorkspaceLayout } from './workspace-layout.js';
+import { WorkspaceExports, downloadBlob } from './workspace-exports.js';
 
 const $ = id => document.getElementById(id);
 const all = selector => [...document.querySelectorAll(selector)];
@@ -38,26 +44,34 @@ const state = {
   referenceFrame: null, undo: [], redo: [], record: null,
   tracks: {}, contacts: [], props: [], analysis: defaultAnalysis(),
   training: restoreTraining(null, 60), notes: '', takes: [], sceneSnap: true,
+  mediaBlob: null, mediaReference: null, poseLibrary: [],
 };
-let stage, recorder, studio, toolSnapshot, toastTimer, saveTimer, pendingSave, dragSnapshot, exportPlayback;
+let stage, recorder, studio, poseTools, media, layout, workspaceExports, catalog, toolSnapshot, toastTimer, dragSnapshot;
 let operation = 0;
-let projectTrashOpen = false;
-let projectAction = false;
 let profileStorage = true;
-let takeStorage = true;
+let saveState = 'saved';
+let saveError = null;
+let poseDirty = true;
 let lastFrame = -1;
 const session = new Map();
 const frameNumber = () => Math.round(state.frame);
 const busy = () => state.exporting || Boolean(recorder?.busy) || Boolean(stage?.gizmo.dragging) || Boolean(stage?.externalEditing);
 const canEdit = () => Boolean(state.editor) && !state.playing && !state.loading && !busy();
 const keyAtCursor = () => state.tracks[state.target]?.find(key => key.frame === frameNumber()) ?? state.keys.find(key => key.frame === frameNumber());
-const recordKey = record => record.kind === 'practice' ? 'practice-v2:' + record.id : 'project:' + record.id;
+const recordKey = record => record.kind === 'library' ? 'pose-library-v1' : record.kind === 'practice' ? 'practice-v2:' + record.id : 'project:' + record.id;
 const sessionKey = (kind, id) => kind + ':' + id;
 const currentDraft = () => state.draft?.frame === frameNumber() ? state.draft.pose : null;
 const currentPose = () => currentDraft() ?? samplePoseKeys(state.keys, state.frame, state.tracks);
 const keyCount = () => state.keys.length + Object.values(state.tracks).reduce((total, track) => total + track.length, 0);
 const study = () => studies.find(item => item.id === state.studyId);
 const fileTitle = file => (file.name ?? 'Imported animation').replace(/\.(glb|fbx)$/i, '');
+
+const persistence = new SaveQueue({
+  write: record => saveReference(recordKey(record), record),
+  journal: record => { if (record.kind !== 'library') journalTake(localStorage, record); },
+  confirm: record => { if (record.kind !== 'library') confirmTake(localStorage, record); },
+  onStatus(status, error) { saveState = status; saveError = error; updateSaveStatus(); },
+});
 
 function tell(message, action = null) {
   const text = document.createElement('span');
@@ -77,9 +91,10 @@ function tell(message, action = null) {
 }
 
 function updateSaveStatus() {
-  const available = profileStorage && takeStorage;
-  $('save-label').textContent = available ? 'Saved locally' : 'Saved for this session';
-  $('save-status').classList.toggle('unavailable', !available);
+  $('save-label').textContent = !profileStorage ? 'Project list not saved' : saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed' : 'Saved locally';
+  $('save-status').classList.toggle('unavailable', !profileStorage || saveState === 'error');
+  $('save-status').title = saveError?.message ?? '';
+  $('retry-save').hidden = profileStorage && saveState !== 'error';
 }
 
 function persistPreferences() {
@@ -108,36 +123,21 @@ function captureRecord() {
     referenceSource: state.reference?.source ?? null,
     tracks: state.tracks, contacts: state.contacts, props: state.props, analysis: state.analysis,
     training: state.training, notes: state.notes, takes: state.takes, sceneSnap: state.sceneSnap,
+    mediaBlob: state.mediaBlob, mediaReference: state.mediaReference, poseLibrary: state.poseLibrary,
   };
 }
 
-function writeRecord(record) {
-  return saveReference(recordKey(record), record).then(() => {
-    confirmTake(localStorage, record);
-    takeStorage = true;
-    updateSaveStatus();
-  }).catch(() => {
-    takeStorage = false;
-    updateSaveStatus();
-  });
-}
-
-function flushSave() {
-  clearTimeout(saveTimer);
-  if (!pendingSave) return;
-  const record = pendingSave;
-  pendingSave = null;
-  void writeRecord(record);
-}
-
+function writeRecord(record) { return persistence.save(record); }
+function flushSave() { return persistence.flush(); }
 function queueSave() {
   const record = captureRecord();
   if (!record) return;
   session.set(sessionKey(record.kind, record.id), record);
-  try { journalTake(localStorage, record); } catch { /* IndexedDB remains the main store. */ }
-  pendingSave = record;
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(flushSave, 250);
+  persistence.enqueue(record);
+}
+function savePoseLibrary() {
+  persistence.enqueue({ kind: 'library', id: 'poses', items: state.poseLibrary });
+  queueSave();
 }
 
 function setLibraryOpen(open) {
@@ -156,90 +156,8 @@ function renderLibrary() {
     </section>`).join('');
 }
 
-function renderProjects() {
-  const list = profile.projects.map(project => {
-    const row = document.createElement('div');
-    row.className = 'project-row';
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'project-item' + (state.kind === 'project' && state.id === project.id ? ' current' : '');
-    button.dataset.project = project.id;
-    const symbol = document.createElement('span');
-    symbol.className = 'motion-icon';
-    symbol.innerHTML = icon('key');
-    const text = document.createElement('span');
-    text.className = 'motion-name';
-    const title = document.createElement('strong');
-    title.textContent = project.name;
-    const subtitle = document.createElement('small');
-    subtitle.textContent = 'Saved take';
-    text.append(title, subtitle);
-    button.append(symbol, text);
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'icon-button project-delete';
-    remove.dataset.deleteProject = project.id;
-    remove.setAttribute('aria-label', 'Delete project ' + project.name);
-    remove.title = 'Move to Trash';
-    remove.innerHTML = icon('trash');
-    remove.disabled = busy() || state.loading || projectAction;
-    row.append(button, remove);
-    return row;
-  });
-  if (!list.length) {
-    const empty = document.createElement('p');
-    empty.className = 'empty-projects';
-    empty.textContent = 'Create an animation or import a clip to start your first project.';
-    list.push(empty);
-  }
-  $('project-list').replaceChildren(...list);
-  const deleted = profile.trash.map(project => {
-    const row = document.createElement('div');
-    row.className = 'project-row deleted-project';
-    const text = document.createElement('span');
-    text.className = 'motion-name';
-    const title = document.createElement('strong');
-    title.textContent = project.name;
-    const subtitle = document.createElement('small');
-    subtitle.textContent = 'In Trash';
-    text.append(title, subtitle);
-    const restore = document.createElement('button');
-    restore.type = 'button';
-    restore.className = 'button small';
-    restore.dataset.restoreProject = project.id;
-    restore.textContent = 'Restore';
-    restore.setAttribute('aria-label', 'Restore project ' + project.name);
-    restore.disabled = busy() || state.loading || projectAction;
-    row.append(text, restore);
-    return row;
-  });
-  if (!deleted.length) {
-    const empty = document.createElement('p');
-    empty.className = 'empty-projects';
-    empty.textContent = 'No deleted projects. Projects moved here can be restored at any time.';
-    deleted.push(empty);
-  }
-  $('project-trash').replaceChildren(...deleted);
-  $('project-trash-toggle').innerHTML = icon(projectTrashOpen ? 'arrow' : 'trash');
-  const label = document.createElement('span');
-  label.textContent = projectTrashOpen ? 'Back to projects' : 'Trash (' + profile.trash.length + ')';
-  $('project-trash-toggle').append(label);
-}
-
-function setWorkspaceTab(tab) {
-  const projects = tab === 'projects';
-  $('motion-library').hidden = projects;
-  $('project-list').hidden = !projects || projectTrashOpen;
-  $('project-trash').hidden = !projects || !projectTrashOpen;
-  $('project-trash-toggle').hidden = !projects;
-  $('library-title').textContent = projects ? projectTrashOpen ? 'Deleted projects' : 'Your animations' : 'Reference library';
-  $('library-count').textContent = projects ? projectTrashOpen ? profile.trash.length : profile.projects.length : studies.length;
-  for (const button of all('[data-workspace]')) {
-    const active = button.dataset.workspace === tab;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', active);
-  }
-}
+function renderProjects() { catalog.render(); }
+function setWorkspaceTab(tab) { catalog.setTab(tab); }
 
 function sourceInfo(blob, asset, record, source = null) {
   return {
@@ -326,6 +244,9 @@ function installRuntime(runtime) {
     frame: Math.max(0, Math.min(record.frames, record.cursor ?? 0)),
     referenceFrame: null, playing: false, undo: [], redo: [], loading: false,
     ...runtime.studioData,
+    mediaBlob: record.mediaBlob instanceof Blob ? record.mediaBlob : null,
+    mediaReference: record.mediaBlob ? restoreMediaSettings(record.mediaReference) : null,
+    poseLibrary: [...new Map([...state.poseLibrary, ...restorePoseLibrary(record.poseLibrary)].map(item => [item.id, item])).values()],
   });
   $('loading').hidden = true;
   const target = [...editor.bones].find(([, bone]) => state.studyId === 'regard'
@@ -341,6 +262,8 @@ function installRuntime(runtime) {
   if (state.tool === 'scale') state.target = 'character';
   renderContext();
   studio?.bindRuntime();
+  poseTools?.refresh();
+  void media?.bind();
   document.querySelector('.inspector-scroll').scrollTop = 0;
   setCamera();
   setLibraryOpen(false);
@@ -390,7 +313,7 @@ async function loadStudy(id) {
 }
 
 async function openProject(id) {
-  if (busy() || projectAction || !profile.projects.some(project => project.id === id)) return;
+  if (busy() || catalog.busy || !profile.projects.some(project => project.id === id)) return;
   queueSave();
   flushSave();
   const request = ++operation;
@@ -414,57 +337,9 @@ function setLoading(value, message = '') {
   updateControls();
 }
 
-function registerProject(record) {
-  if (!profile.projects.some(item => item.id === record.id)) profile.projects.push({ id: record.id, name: record.name });
-  session.set(sessionKey('project', record.id), record);
-  const saved = writeRecord(record);
-  persistPreferences();
-  return saved;
-}
-
-async function removeProject(id) {
-  if (busy() || state.loading || projectAction) return;
-  const position = profile.projects.findIndex(project => project.id === id);
-  if (position < 0) return;
-  const project = profile.projects[position];
-  projectAction = true;
-  updateControls();
-  try {
-    // Finish saving an active take and leave its workspace before hiding it from the project list.
-    if (state.kind === 'project' && state.id === id) {
-      const opened = await loadStudy(profile.studyId);
-      if (!opened) return;
-    }
-    profile.projects = profile.projects.filter(item => item.id !== id);
-    profile.trash = [...profile.trash.filter(item => item.id !== id), { ...project, position, deletedAt: Date.now() }];
-    if (profile.projectId === id) profile.projectId = profile.projects.at(-1)?.id ?? null;
-    projectTrashOpen = false;
-    persistPreferences();
-    renderProjects();
-    setWorkspaceTab('projects');
-    tell('“' + project.name + '” moved to Trash.', { label: 'Undo', run: () => restoreProject(id) });
-  } finally {
-    projectAction = false;
-    updateControls();
-  }
-}
-
-function restoreProject(id) {
-  if (busy() || state.loading || projectAction) return;
-  const project = profile.trash.find(item => item.id === id);
-  if (!project) return;
-  if (!profile.projects.some(item => item.id === id)) {
-    const position = Math.max(0, Math.min(profile.projects.length, project.position ?? profile.projects.length));
-    profile.projects.splice(position, 0, { id: project.id, name: project.name });
-  }
-  profile.trash = profile.trash.filter(item => item.id !== id);
-  projectTrashOpen = false;
-  persistPreferences();
-  renderProjects();
-  setWorkspaceTab('projects');
-  updateControls();
-  tell('“' + project.name + '” restored.');
-}
+function registerProject(record) { return catalog.register(record); }
+function removeProject(id) { return catalog.remove(id); }
+function restoreProject(id) { return catalog.restore(id); }
 
 async function createProject(record) {
   if (busy()) return;
@@ -548,7 +423,7 @@ function renderContext() {
   $('source-clip-row').hidden = state.editor.sourceMode !== 'clip' || clips.length < 2;
   $('source-clip').replaceChildren(...clips.map((clip, index) => new Option(clip.name || 'Clip ' + (index + 1), index, false, index === state.editor.reference.index)));
   for (const button of all('[data-study]')) button.classList.toggle('current', state.kind === 'practice' && button.dataset.study === state.id);
-  projectTrashOpen = false;
+  catalog.trashOpen = false;
   renderProjects();
   setWorkspaceTab(state.kind === 'practice' ? 'practice' : 'projects');
   renderReferencePanel();
@@ -638,6 +513,7 @@ function updateFrame(force = false) {
   const frame = frameNumber();
   if (!force && frame === lastFrame) return;
   lastFrame = frame;
+  poseDirty = true;
   $('frame-current').textContent = frame;
   $('timeline').value = frame;
   $('timeline').setAttribute('aria-valuetext', 'Frame ' + frame + ' of ' + state.frames);
@@ -670,6 +546,7 @@ function updateSelection() {
   for (const option of [...$('joint').options]) if (option.value.startsWith('prop:')) option.remove();
   for (const item of state.props) $('joint').add(new Option(item.name + ' · object', 'prop:' + item.id));
   $('joint').value = state.target;
+  poseTools?.refresh();
   const prop = state.target.startsWith('prop:');
   document.querySelector('[data-tool="scale"]').title = prop ? 'Scale scene object (R)' : 'Scale whole character (R)';
   $('selected-kind').textContent = prop ? 'Scene object' : state.target === 'character' ? 'Character' : 'Joint';
@@ -707,7 +584,7 @@ function updateComparison() {
 }
 
 function updateControls() {
-  const blocked = busy() || projectAction;
+  const blocked = busy() || catalog.busy;
   const editable = canEdit();
   $('play').innerHTML = icon(state.playing ? 'pause' : 'play');
   $('play').setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
@@ -737,6 +614,10 @@ function updateControls() {
   for (const button of all('[data-delete-project], [data-restore-project], #project-trash-toggle')) button.disabled = blocked || state.loading;
   if (!stage?.gizmo.dragging) stage?.setInteraction(editable);
   studio?.updateEnabled(editable, blocked || state.loading);
+  poseTools?.refresh();
+  for (const input of all('#media-reference-tools input, #media-reference-tools button')) input.disabled = !editable;
+  $('save-project-file').disabled = !state.editor || blocked || state.loading;
+  $('open-project-file').disabled = blocked || state.loading;
 }
 
 function setCamera(view = study()?.view ?? 'perspective') {
@@ -800,20 +681,8 @@ function setTool(mode) {
   updateSelection();
 }
 
-function snapshot() {
-  return structuredClone({
-    keys: state.keys, draft: state.draft, frames: state.frames, fps: state.fps,
-    frame: state.frame, alignment: state.editor.getAlignment(),
-    tracks: state.tracks, contacts: state.contacts, props: state.props, target: state.target,
-    range: { start: state.training.start, end: state.training.end, loop: state.training.loop },
-  });
-}
-
-function remember(before = snapshot()) {
-  state.undo.push(before);
-  if (state.undo.length > 100) state.undo.shift();
-  state.redo = [];
-}
+function snapshot() { return captureEdit(state); }
+function remember(before = snapshot()) { rememberEdit(state, before); }
 
 function changed({ preview = false } = {}) {
   renderKeys();
@@ -838,24 +707,10 @@ function setKeys(keys, before = null) {
 }
 
 function undo(redo = false) {
-  if (!canEdit()) return;
-  const from = redo ? state.redo : state.undo;
-  const to = redo ? state.undo : state.redo;
-  if (!from.length) return;
-  to.push(snapshot());
-  const saved = from.pop();
-  const changedLength = saved.frames !== state.frames;
-  state.keys = saved.keys;
-  state.draft = saved.draft;
-  state.frames = saved.frames;
-  state.fps = saved.fps;
-  state.frame = saved.frame;
-  if (changedLength) state.training = restoreTraining({ ...state.training, ...saved.range }, state.frames);
-  state.tracks = saved.tracks ?? {}; state.contacts = saved.contacts ?? []; state.props = saved.props ?? [];
-  state.target = saved.target ?? state.target;
-  state.editor.setAlignment(saved.alignment);
-  renderContext();
-  queueSave();
+  if (!canEdit() || !travelHistory(state, redo)) return;
+  stage.resetReferenceOrigin();
+  void studio.compareTake(state.training.compare, true);
+  renderContext(); queueSave();
 }
 
 function keyPose() {
@@ -962,62 +817,11 @@ function draw() {
   state.reference?.clip.sample(referenceTime());
   state.editor.sample(state.keys, state.frame, state.frames, currentDraft());
   studio?.sampleComparison();
+  poseDirty = false;
+  stage.invalidate();
 }
 
-function download(blob, name) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
 
-async function exportGlb() {
-  if (!canEdit()) return;
-  const playback = { frame: state.frame, playing: state.playing };
-  state.playing = false;
-  state.exporting = true;
-  $('export-dialog').close();
-  updateControls();
-  let exportRoot;
-  try {
-    await new Promise(requestAnimationFrame);
-    const credit = state.editor.reference.model.userData.sourceCredits.join(' · ')
-      || state.reference?.source?.credit;
-    exportRoot = state.editor.root;
-    let sample = time => state.editor.sample(state.keys, time * state.fps, state.frames);
-    if ($('export-scene').checked && state.props.length) {
-      const character = cloneRig(state.editor.root), originals = [], copies = [];
-      state.editor.root.traverse(node => originals.push(node));
-      character.traverse(node => copies.push(node));
-      exportRoot = new Group(); exportRoot.name = state.name;
-      exportRoot.add(character, stage.sceneObjects.exportClone());
-      sample = time => {
-        state.editor.sample(state.keys, time * state.fps, state.frames);
-        originals.forEach((node, index) => {
-          copies[index].position.copy(node.position); copies[index].quaternion.copy(node.quaternion); copies[index].scale.copy(node.scale);
-          if (node.morphTargetInfluences) copies[index].morphTargetInfluences = [...node.morphTargetInfluences];
-        });
-      };
-    }
-    const bytes = await exportAnimation({
-      root: exportRoot, sample,
-      duration: state.frames / state.fps, fps: state.fps, name: state.name, credit,
-    });
-    const name = state.name.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'animation';
-    download(new Blob([bytes], { type: 'model/gltf-binary' }), name + '.glb');
-    tell('Animated character exported.');
-  } catch (error) {
-    console.warn(error);
-    tell('The animation could not be exported. Your take is saved locally.');
-  } finally {
-    Object.assign(state, playback, { exporting: false });
-    draw();
-    updateControls();
-    updateFrame(true);
-  }
-}
 
 function changeTiming() {
   if (!canEdit()) return;
@@ -1039,15 +843,27 @@ function changeTiming() {
   queueSave();
 }
 
-function saveProjectCopy() {
+function saveProjectCopy() { return catalog.copy(); }
+async function openProjectFile(file) {
+  if (busy() || state.loading) return;
+  try { await createProject(await unpackProject(file)); }
+  catch (error) { tell(error.message); }
+}
+function saveProjectFile() {
   if (!state.editor || busy()) return;
-  const record = captureRecord();
-  record.id = crypto.randomUUID();
-  record.kind = 'project';
-  record.name = state.name + ' · copy';
-  registerProject(record);
-  renderProjects();
-  tell('Take saved as a separate project.');
+  try {
+    queueSave();
+    downloadBlob(packProject(captureRecord()), projectFilename(state.name));
+    tell('Editable project saved to a .motionroom file.');
+  } catch (error) { tell(error.message); }
+}
+async function updateStorageInfo() {
+  try {
+    const estimate = await navigator.storage?.estimate();
+    if (estimate) $('storage-info').textContent = 'Browser storage: ' + (estimate.usage / 1048576).toFixed(1) + ' MB used of about ' + Math.round(estimate.quota / 1048576) + ' MB. Keep a project file for backup.';
+    const persistent = await navigator.storage?.persisted();
+    $('persist-storage').hidden = Boolean(persistent) || !navigator.storage?.persist;
+  } catch { $('storage-info').textContent = 'Save a .motionroom file to keep an editable backup outside this browser.'; }
 }
 
 async function init() {
@@ -1060,25 +876,12 @@ async function init() {
       }
     },
   });
-  recorder = new CanvasRecorder($('scene'), {
-    prepare(width, height) {
-      exportPlayback = { frame: state.frame, playing: state.playing, referenceFrame: state.referenceFrame };
-      Object.assign(state, { frame: 0, playing: true, referenceFrame: null });
-      stage.setInteraction(false);
-      stage.setCaptureSize(width, height);
-      draw();
-      stage.render(0);
-    },
-    restore() {
-      Object.assign(state, exportPlayback);
-      stage.endCapture();
-      draw();
-      updateControls();
-      updateFrame(true);
-    },
-    onStop({ blob, filename }) { download(blob, filename); tell('Video exported.'); },
-    onError: tell,
+  workspaceExports = new WorkspaceExports(stage, {
+    getState: () => state, canEdit, draw, toast: tell,
+    refresh() { draw(); updateControls(); updateFrame(true); },
   });
+  recorder = workspaceExports.recorder;
+
   studio = new StudioTools(stage, {
     getState: () => state, canEdit, select: setTarget, setTool, seek, draw,
     save: queueSave, toast: tell, authorPose, contextChanged: renderContext,
@@ -1095,10 +898,15 @@ async function init() {
       toolSnapshot = null; changed();
     },
   });
+  poseTools = new PoseTools($('pose-workshop'), { getState: () => state, getPose: currentPose, canEdit, authorPose, toast: tell, saveLibrary: savePoseLibrary });
+  media = new MediaReference($('media-reference-tools'), $('media-board'), { getState: () => state, canEdit, save: queueSave, seek, toast: tell });
+  layout = new WorkspaceLayout($('studio'), document.querySelector('.workspace'));
+  try { state.poseLibrary = restorePoseLibrary((await readReference('pose-library-v1'))?.items); } catch { /* Projects also carry their pose library. */ }
   let previousTime = performance.now();
   stage.renderer.setAnimationLoop(time => {
     const delta = Math.max(0, Math.min(0.1, (time - previousTime) / 1000));
     previousTime = time;
+    if (state.exporting) return;
     if (state.playing) {
       state.frame += delta * state.fps * (recorder.active ? 1 : state.speed);
       const range = !recorder.active && state.training.loop ? state.training : { start: 0, end: state.frames };
@@ -1112,10 +920,13 @@ async function init() {
       }
       updateFrame();
     }
-    draw();
+    if (state.playing || poseDirty || recorder.active) draw();
+    media?.sync();
     stage.render(delta);
+    workspaceExports.updateRecording();
     if (recorder.active && !state.playing) recorder.stop();
   });
+  void updateStorageInfo();
   if (saved.workspace === 'project' && profile.projects.some(project => project.id === profile.projectId)) await openProject(profile.projectId);
   else await loadStudy(profile.studyId);
   $('scene').addEventListener('webglcontextlost', event => {
@@ -1128,6 +939,11 @@ async function init() {
   });
 }
 
+catalog = new ProjectManager({
+  getState: () => state, profile, studyCount: studies.length, blocked: busy,
+  capture: captureRecord, write: writeRecord, cache: record => session.set(sessionKey(record.kind, record.id), record),
+  persist: persistPreferences, loadStudy, refresh: updateControls, toast: tell,
+});
 mountIcons();
 renderLibrary();
 renderProjects();
@@ -1148,12 +964,12 @@ $('project-trash').addEventListener('click', event => {
   if (button) restoreProject(button.dataset.restoreProject);
 });
 $('project-trash-toggle').addEventListener('click', () => {
-  projectTrashOpen = !projectTrashOpen;
+  catalog.trashOpen = !catalog.trashOpen;
   renderProjects();
   setWorkspaceTab('projects');
 });
 for (const button of all('[data-workspace]')) button.addEventListener('click', () => {
-  projectTrashOpen = false;
+  catalog.trashOpen = false;
   renderProjects();
   setWorkspaceTab(button.dataset.workspace);
 });
@@ -1361,15 +1177,22 @@ $('export-btn').addEventListener('click', () => {
   if (state.playing) seek(state.frame);
   $('export-dialog').showModal();
 });
-$('export-glb').addEventListener('click', () => void exportGlb());
-$('export-video').addEventListener('click', () => {
-  $('export-dialog').close();
-  if (recorder.start({ height: Number($('export-quality').value), fps: Number($('export-fps').value),
-    name: state.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') })) updateControls();
+$('export-glb').addEventListener('click', () => void workspaceExports.glb($('export-scene').checked));
+$('export-video').addEventListener('click', () => workspaceExports.quickVideo({ height: Number($('export-quality').value), fps: Number($('export-fps').value) }));
+$('export-frame-video').addEventListener('click', () => void workspaceExports.video({ height: Number($('export-quality').value), fps: Number($('export-fps').value) }));
+$('save-project-file').addEventListener('click', saveProjectFile);
+$('open-project-file').addEventListener('click', () => $('project-file').click());
+$('project-file').addEventListener('change', event => { const file = event.target.files[0]; event.target.value = ''; if (file) void openProjectFile(file); });
+$('retry-save').addEventListener('click', () => { persistPreferences(); void persistence.retry(); });
+$('persist-storage').addEventListener('click', async () => {
+  const retained = await navigator.storage.persist().catch(() => false);
+  tell(retained ? 'This browser will protect local projects from automatic storage eviction.' : 'Persistent storage was not granted. Save a project file for backup.');
+  void updateStorageInfo();
 });
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    if (recorder?.active) recorder.stop();
+    if (recorder?.active) workspaceExports.cancel();
     queueSave();
     flushSave();
   }
@@ -1378,6 +1201,8 @@ window.addEventListener('pagehide', () => { queueSave(); flushSave(); });
 document.addEventListener('keydown', event => {
   if (document.querySelector('dialog[open]') || event.target.closest('input, textarea, select')) return;
   const key = event.key.toLowerCase();
+  if ((event.ctrlKey || event.metaKey) && key === 's') { event.preventDefault(); saveProjectFile(); return; }
+  if (studio?.timeline.handleShortcut(event)) return;
   if ((event.ctrlKey || event.metaKey) && key === 'd' && state.target.startsWith('prop:')) { event.preventDefault(); if (canEdit()) studio.duplicateObject(); return; }
   if ((event.ctrlKey || event.metaKey) && key === 'z') { event.preventDefault(); undo(event.shiftKey); return; }
   if (event.ctrlKey || event.metaKey || event.altKey) return;

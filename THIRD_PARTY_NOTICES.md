@@ -20,6 +20,14 @@ This requirement also applies to copies in release archives, exported GLBs and r
 
 Retain its copyright and permission notice when redistributing Three.js with the application. npm installs the dependency separately; it is not original Motion Room code.
 
+## Playwright (development tests)
+
+- **Authors:** Microsoft Corporation.
+- **Use:** optional browser regression runner; not loaded by the studio.
+- **License:** Apache License 2.0.
+- **Source:** [Playwright](https://github.com/microsoft/playwright).
+- **License text:** installed as `node_modules/playwright/LICENSE` and `node_modules/playwright-core/LICENSE`.
+
 ## Epic Games — Game Animation Sample
 
 - **Provider:** Epic Games.

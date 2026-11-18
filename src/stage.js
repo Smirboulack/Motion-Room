@@ -83,6 +83,8 @@ export class Stage {
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.target.set(0, 0.95, 0);
     this.controls.enableDamping = true;
+    this.invalidated = true;
+    this.controls.addEventListener('change', () => this.invalidate());
     this.controls.dampingFactor = 0.12;
     this.controls.minDistance = 0.4;
     this.controls.maxDistance = 120;
@@ -431,8 +433,12 @@ export class Stage {
 
   render(dt) {
     this.controls.update(dt);
+    if (!this.invalidated && !this.capturing) return;
+    this.invalidated = false;
     this.updateActors();
     this.beforeRender?.();
     this.renderer.render(this.scene, this.camera);
   }
+
+  invalidate() { this.invalidated = true; }
 }

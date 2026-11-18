@@ -199,7 +199,8 @@ export function retimeKeys(keys, oldFrames, newFrames) {
   return [...byFrame.values()].sort((left, right) => left.frame - right.frame);
 }
 
-export async function exportAnimation({ root, sample, duration, fps, name, credit }) {
+export async function exportAnimation({ root, sample, duration, fps, name, credit, signal, onProgress = () => {} }) {
+  signal?.throwIfAborted();
   const copied = clone(root);
   copied.parent = null;
   copied.userData = { ...copied.userData, ...(credit ? { sourceCredit: credit } : {}) };
@@ -217,34 +218,46 @@ export async function exportAnimation({ root, sample, duration, fps, name, credi
     });
     node.material = Array.isArray(node.material) ? materials : materials[0];
   });
-  const tracks = [];
-  const steps = Math.max(1, Math.round(duration * fps));
-  const times = Float32Array.from({ length: steps + 1 }, (_, index) => index / steps * duration);
-  const captures = originals.map((node, index) => ({
-    node, target: copies[index], position: [], quaternion: [], scale: [], morph: [],
-  }));
-  for (const time of times) {
-    sample(time);
-    for (const capture of captures) {
-      const { node } = capture;
-      capture.position.push(...node.position.toArray());
-      capture.quaternion.push(...node.quaternion.toArray());
-      capture.scale.push(...node.scale.toArray());
-      if (node.morphTargetInfluences?.length) capture.morph.push(...node.morphTargetInfluences);
+  try {
+    const tracks = [];
+    const steps = Math.max(1, Math.round(duration * fps));
+    const times = Float32Array.from({ length: steps + 1 }, (_, index) => index / steps * duration);
+    const captures = originals.map((node, index) => ({
+      node, target: copies[index], position: [], quaternion: [], scale: [], morph: [],
+    }));
+    let frameIndex = 0;
+    for (const time of times) {
+      signal?.throwIfAborted();
+      sample(time);
+      for (const capture of captures) {
+        const { node } = capture;
+        capture.position.push(...node.position.toArray());
+        capture.quaternion.push(...node.quaternion.toArray());
+        capture.scale.push(...node.scale.toArray());
+        if (node.morphTargetInfluences?.length) capture.morph.push(...node.morphTargetInfluences);
+      }
+      if (++frameIndex % 30 === 0) {
+        onProgress(frameIndex / times.length * 0.9);
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
     }
+    for (const capture of captures) {
+      const { target, position, quaternion, scale, morph } = capture;
+      target.position.fromArray(position);
+      target.quaternion.fromArray(quaternion);
+      target.scale.fromArray(scale);
+      tracks.push(
+        new THREE.VectorKeyframeTrack(target.uuid + '.position', times, position),
+        new THREE.QuaternionKeyframeTrack(target.uuid + '.quaternion', times, quaternion),
+        new THREE.VectorKeyframeTrack(target.uuid + '.scale', times, scale),
+      );
+      if (morph.length) tracks.push(new THREE.NumberKeyframeTrack(target.uuid + '.morphTargetInfluences', times, morph));
+    }
+    const clip = new THREE.AnimationClip(name, duration, tracks).optimize();
+    signal?.throwIfAborted(); onProgress(0.92);
+    const bytes = await new GLTFExporter().parseAsync(copied, { binary: true, animations: [clip], onlyVisible: true });
+    signal?.throwIfAborted(); onProgress(1); return bytes;
+  } finally {
+    copied.traverse(node => { if (node.isMesh) for (const material of [node.material].flat()) material.dispose(); });
   }
-  for (const capture of captures) {
-    const { target, position, quaternion, scale, morph } = capture;
-    target.position.fromArray(position);
-    target.quaternion.fromArray(quaternion);
-    target.scale.fromArray(scale);
-    tracks.push(
-      new THREE.VectorKeyframeTrack(target.uuid + '.position', times, position),
-      new THREE.QuaternionKeyframeTrack(target.uuid + '.quaternion', times, quaternion),
-      new THREE.VectorKeyframeTrack(target.uuid + '.scale', times, scale),
-    );
-    if (morph.length) tracks.push(new THREE.NumberKeyframeTrack(target.uuid + '.morphTargetInfluences', times, morph));
-  }
-  const clip = new THREE.AnimationClip(name, duration, tracks).optimize();
-  return new GLTFExporter().parseAsync(copied, { binary: true, animations: [clip], onlyVisible: true });
 }

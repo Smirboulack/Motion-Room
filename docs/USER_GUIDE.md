@@ -28,6 +28,12 @@ The inspector has three tabs: **Pose** for joints, IK and take settings, **Scene
 
 Choose **World** or **Local** for the gizmo axes. Whole-character alignment is static across the take and is included in GLB export. Use a joint, such as the hips or root bone, to animate movement over time.
 
+Use **Find a joint** to narrow the joint list. **Pose workshop** provides numeric translation and rotation offsets for the selected articulation. **Pose scope** chooses the selected joint, that joint and its children (useful for a hand and its fingers), or the whole pose. Copy, paste, mirror or reset offsets within that scope. With an imported animation these are corrections over the source motion.
+
+Open **Pose library**, name a pose and choose **Save pose to library** to reuse it later. The personal library is shared between local projects; compatible presets appear for the current rig. Portable projects carry their pose library too. Removing a preset offers an immediate Undo action. Changing or applying a pose follows Auto key and supports the regular Undo/Redo controls.
+
+Drag the library or inspector border to change its width. When Channels or Curves is open, drag the timeline's upper edge to adjust its height. The separators also accept arrow keys. **Focus view** hides the panels and timeline; **Restore panels** brings them back. Reset panel sizes from Help.
+
 With **Auto key** enabled, a completed joint drag records one pose at the current frame. Disable it to try poses freely, then press **K** or **Key pose** when ready. Only your own keys appear on the timeline. Choose smooth, linear, stepped or Bézier interpolation, move a selected key to a new frame, and use Undo/Redo to refine a take. **Clear keys** can also be undone.
 
 Duration and frame-rate changes retime existing keys. The viewport keeps the same size when moving between keyed and unkeyed frames.
@@ -56,6 +62,10 @@ Open **Channels** above the timeline to see separate rows for keyed joints. Use 
 
 Open **Curves** to inspect a joint's rotation or local translation component. Drag a key to change its time and value, or use the numeric fields. Choose **Bézier** and drag its handles, or enter the four handle values, to shape the interpolation between transforms. Rotation uses quaternion interpolation, with degrees shown for component editing; translation values use the imported rig's local units. Each graph gesture is one Undo step. Opening the editor deliberately changes the layout; seeking between frames does not.
 
+In **Channels**, drag empty space to box-select keys, Ctrl/Cmd-click to add or remove a key, or Shift-click to select a time range within a row. Drag any selected key to move the group. **Whole pose** edits the original full-pose keys; a joint row edits only that joint. Editing an inherited joint row creates an independent track.
+
+Use **Copy**, **Paste** at the playhead, or **Duplicate** immediately after a selection. **Move by** shifts selected keys by a frame count. **Span** and **Stretch** change the distance between the first and last selected keys. A group operation that would collide with another key or create a duplicate frame is rejected as a whole. Movement clamps the group to the take's bounds. **Zoom** and horizontal scrolling expose finer timing; **Fit** restores the full range. One group operation is one Undo step.
+
 ## Practice sessions and visual analysis
 
 In **Study → Motion study**, enable **Show past & future poses** to display blue past poses and amber future poses. Choose your take, the reference or both, and set their frame spacing. **Draw selected joint trajectories** shows the selected joint's path with dots at equal time intervals. Select a wrist, foot or hips to inspect movement and spacing; paths can use the full clip or just the A–B range. These helpers are excluded from GLB export.
@@ -76,6 +86,16 @@ Your working model comes from the chosen animation reference, with its actual sk
 
 FBX files must contain the skinned character and its skeleton. Embed textures in the FBX when they are needed; external texture folders are not selected by the single-file importer. GLB files must be self-contained, with their buffers and textures embedded.
 
+Saved takes from every source clip appear in Study with their clip name. **Continue this take** restores the original clip as well as its keys, contacts, objects, alignment, timing and notes. Undo restores the previously edited clip and its work.
+
+## Video and image reference board
+
+In **Study → Video & image reference**, choose a local video or image. A resizable board appears inside the viewport. Files are processed locally and saved with the project; they do not replace the rig or 3D reference.
+
+For video, **Link video to playhead** synchronizes it to project time. **Start at project time (s)** sets the project time corresponding to video time zero; use a negative value to start partway through the video. **Source frame rate** controls the step size of Previous/Next video frame. The source scrubber and stepping controls seek the project when linked. Unlink to inspect the footage independently, then **Align current video frame here** to synchronize that image with the current project frame. A source frame outside the take's time range switches the board to independent inspection.
+
+**Show reference board** and the board's close control hide it without removing the file. The browser must support the chosen image or video codec. The board is stored in `.motionroom` projects and is excluded from GLB and captured 3D-view video.
+
 The supplied **Defeated.fbx** is available as **Defeated** in the reference library. It imports both X Bot meshes, one 65-bone skeleton and its 6.73-second Mixamo animation. The importer consolidates duplicate FBX bone aliases so both meshes follow the same animated skeleton.
 
 ## Free animation and storage
@@ -86,11 +106,17 @@ Choose **New animation** to start an empty project using the current character. 
 
 Use the trash icon beside a saved project to remove it from the project list. **Undo** immediately restores it. The **Trash** view keeps deleted projects across reloads and lets you restore them later with their animation and character intact. Deleting the open project saves its latest changes and returns the workspace to practice.
 
+Choose **Export → Save editable project (.motionroom)** or press **Ctrl/Cmd+S** to download a complete project file. It contains original character/reference assets, footage, poses, independent tracks, contacts, scene objects, alignment, notes, pose presets, edits to other source clips and saved takes. **Open project file** adds a separate project, preserving the current project. The transient Undo/Redo stack is not stored.
+
+**Saving…** means a browser write is pending. **Saved locally** appears after the database confirms it. **Save failed** retains the failed write for **Retry save**; a project file can still be saved to disk. Export shows estimated browser storage usage and a **Protect browser saves** option where the browser supports persistent storage. Keep project files for long-term backups.
+
 ## Export
 
 **Download animated character (.glb)** exports your character, skeleton, baked motion and whole-character alignment at the project frame rate. Imported source motion, joint tracks and contact constraints are baked together. Enable **Include scene objects in the GLB** to add the static obstacles. Skeleton helpers, ghost poses, trajectories, gizmos and comparison spacing are excluded. Source credits are preserved where available. The resulting GLB can be imported back into Motion Room or another glTF-compatible application.
 
-**Export video** records the current comparison view, including objects and enabled study helpers, in MP4 or WebM according to browser support. Choose 720p or 1080p and 30 or 60 fps. Video export records the full take even when an A–B practice loop is enabled. Animation-file export is GLB; FBX is supported for import.
+**Export frame-by-frame video (.webm)** renders every frame with an explicit timestamp at 30 or 60 fps, at 720p or 1080p. It exports the full take independently of playback speed and A–B looping, using WebCodecs VP8 encoding. The result includes seek information and an exact duration. Browsers without this encoder can use **Quick video (real time)**, which records in the supported MP4 or WebM format.
+
+Both video modes capture the current 3D comparison view, objects and enabled study helpers. The reference board is excluded. A progress dialog supports **Cancel export**; cancellation restores the viewport size, playhead and playback state and does not download a partial file. GLB baking also reports progress and can be cancelled. Animation-file export is GLB; FBX is supported for import.
 
 The model and motion in an export retain their original content licenses. The application's MIT license does not override the terms of third-party or imported assets; see [third-party notices](../THIRD_PARTY_NOTICES.md).
 
@@ -105,6 +131,9 @@ The model and motion in an export retain their original content licenses. The ap
 | Ctrl/Cmd + D | Duplicate the selected scene object |
 | Ctrl/Cmd + Z | Undo |
 | Ctrl/Cmd + Shift + Z | Redo |
+| Ctrl/Cmd + S | Save editable project file |
+| Ctrl/Cmd + C / V | Copy / paste a key selection in the advanced timeline |
+| Shift + left / right arrow | Nudge selected keys by one frame |
 | F | Frame the scene |
 | Shift + F | Focus the selected joint or object |
 | 0 / 1 / 3 / 7 | Perspective / front / side / back |

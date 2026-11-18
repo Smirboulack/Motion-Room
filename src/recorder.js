@@ -19,6 +19,7 @@ export class CanvasRecorder {
 
   start({ height = 1080, fps = 30, name = 'animation' } = {}) {
     if (!this.supported || this.busy) return false;
+    this.discard = false;
     let prepared = false;
     try {
       prepared = true;
@@ -40,7 +41,7 @@ export class CanvasRecorder {
         const actualType = recorder.mimeType || this.mimeType;
         const extension = actualType.includes('mp4') ? 'mp4' : 'webm';
         this.cleanup();
-        if (failed) return;
+        if (failed || this.discard) return;
         if (!chunks.length) { this.onError('No frames were recorded. Start the export again.'); return; }
         if (this.url) URL.revokeObjectURL(this.url);
         const blob = new Blob(chunks, { type: actualType });
@@ -59,7 +60,7 @@ export class CanvasRecorder {
       return false;
     }
   }
-  stop() { if (this.active) this.recorder.stop(); }
+  stop({ discard = false } = {}) { if (this.active) { this.discard = discard; this.recorder.stop(); } }
   cleanup() {
     this.stream?.getTracks().forEach(track => track.stop());
     this.stream = null;

@@ -40,3 +40,16 @@ test('an older database save cannot discard a newer edit journal', () => {
   confirmTake(store, second);
   assert.deepEqual(recoverTake(store, take), take);
 });
+
+test('reload recovery never pairs newly imported media settings with an older media file', () => {
+  const store = storage();
+  const previous = { ...take, mediaBlob: new Blob(['old']), mediaReference: { name: 'old.webm', offset: 0 } };
+  const edited = { ...previous, savedAt: 2, cursor: 40, mediaBlob: new Blob(['new footage']), mediaReference: { name: 'new.webm', offset: 2 } };
+  journalTake(store, edited);
+  const recovered = recoverTake(store, previous);
+  assert.equal(recovered.cursor, 40);
+  assert.equal(recovered.mediaBlob, previous.mediaBlob);
+  assert.deepEqual(recovered.mediaReference, previous.mediaReference);
+  const storedMedia = { ...previous, mediaBlob: edited.mediaBlob, mediaReference: { ...edited.mediaReference, offset: 0 } };
+  assert.equal(recoverTake(store, storedMedia).mediaReference.offset, 2);
+});

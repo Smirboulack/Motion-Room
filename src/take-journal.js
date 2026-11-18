@@ -3,15 +3,16 @@ const keyFor = record => 'motion-room-edit-v2:' + record.kind + ':' + record.id;
 const identity = record => JSON.stringify([
   record.assetName, record.characterVersion, record.referenceName, record.sourceMode,
 ]);
+const mediaIdentity = record => JSON.stringify([record.mediaReference?.name, record.mediaBlob?.size, record.mediaBlob?.type]);
 
 export function journalTake(storage, record) {
   const { name, poses, draft, frames, fps, cursor, alignment, clipIndex,
     referenceIndex, clipTakes, savedAt, editRevision, tracks, contacts, props, analysis,
-    training, notes, takes, sceneSnap } = record;
+    training, notes, takes, sceneSnap, mediaReference, poseLibrary } = record;
   storage.setItem(keyFor(record), JSON.stringify({
-    identity: identity(record), name, poses, draft, frames, fps, cursor, alignment,
+    identity: identity(record), mediaIdentity: mediaIdentity(record), name, poses, draft, frames, fps, cursor, alignment,
     clipIndex, referenceIndex, clipTakes, savedAt, editRevision,
-    tracks, contacts, props, analysis, training, notes, takes, sceneSnap,
+    tracks, contacts, props, analysis, training, notes, takes, sceneSnap, mediaReference, poseLibrary,
   }));
 }
 
@@ -21,7 +22,8 @@ export function recoverTake(storage, record) {
     const pending = JSON.parse(storage.getItem(keyFor(record)));
     if (!pending || pending.identity !== identity(record)
       || pending.savedAt < (record.savedAt ?? 0)) return record;
-    const { identity: _, ...edit } = pending;
+    const { identity: _, mediaIdentity: media, ...edit } = pending;
+    if (media !== undefined && media !== mediaIdentity(record)) delete edit.mediaReference;
     return { ...record, ...edit, schema: 2 };
   } catch { return record; }
 }

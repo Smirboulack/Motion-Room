@@ -20,12 +20,16 @@ The application is **completely free to use**, with no account, subscription or 
 | Visible rigs | Select joints directly, including finger bones when available, and pose them with translation and rotation gizmos. |
 | IK and contact pins | Move a hand or foot target to pose a limb, and hold contacts over a chosen frame range. |
 | Joint channels and curves | Adjust individual joint timing and shape interpolation with smooth, linear, stepped or Bézier curves. |
+| Key groups | Box-select or add keys with Ctrl/Cmd-click, copy, paste, duplicate, move and stretch a selection; zoom and scroll for precise timing. |
+| Pose workshop | Enter numeric joint offsets, copy a joint or limb, mirror poses and reuse a personal pose library. |
+| Reference board | Open a local video or image alongside the character; synchronize footage, set an offset and step source frames. |
 | Ghost poses and trajectories | Inspect past and future poses, arcs and spacing. |
 | Practice sessions | Loop an A–B section, hide the reference, save multiple takes, compare attempts and keep personal notes. |
 | Scene objects | Add walls, stairs, ladders and other supports; position, rotate, resize and duplicate them with gizmos and grid snapping. |
 | Animation editing | Import a rigged `.fbx` or `.glb` with animation and edit a copy of its motion. |
 | Export | Download a baked animated `.glb`, optionally including scene objects, or record the viewport as a video. |
 | Local projects | Keep work in your browser, duplicate projects, and recover deleted projects from Trash. |
+| Portable projects | Save and reopen a `.motionroom` file containing editable work, original assets, reference footage, notes and saved takes. |
 
 You choose how closely to follow a reference and when a take is finished. New practice takes start with **zero keys**. There are no scores, required poses or automatic assessments.
 
@@ -34,7 +38,7 @@ You choose how closely to follow a reference and when a take is finished. New pr
 ### Requirements
 
 - Node.js 22 or newer, with npm.
-- A browser with WebGL support. Video export also requires `MediaRecorder` and canvas capture support.
+- A browser with WebGL support. Frame-by-frame WebM export requires WebCodecs with VP8 encoding; quick video uses `MediaRecorder` and canvas capture support.
 - A mouse or trackpad for navigating the 3D viewport.
 
 ### Run locally
@@ -61,6 +65,8 @@ The app runs locally, with no cloud service or API key required. Installation ne
 5. Save a take to compare attempts, or use **New animation** to work independently of a reference.
 6. Choose **Export** to download the animation or record a video.
 
+Use **Export → Save editable project (.motionroom)**, or **Ctrl/Cmd+S**, to keep an editable backup. Open it again with **Open project file** in the library. Drag the library and inspector edges or the advanced timeline's upper edge to resize panels; **Focus view** expands the 3D workspace.
+
 For controls, contact workflows, reference settings and project management, see the [user guide](docs/USER_GUIDE.md).
 
 ## Build a scene for the motion
@@ -80,6 +86,10 @@ Scene objects are saved with projects and takes. They remain fixed during the an
 | Import an animation or reference | `.fbx`, `.glb` | Must include the rigged character and animation. Multi-clip sources are supported. |
 | Export an animated character | `.glb` | Bakes source motion, authored keys and contact constraints at the project frame rate. Scene objects are optional. |
 | Export a video | `.mp4` or `.webm` | Browser-dependent format; 720p or 1080p, at 30 or 60 fps. Records the full take, including when an A–B loop is active. |
+| Save / open an editable project | `.motionroom` | Includes the original character and reference files, keys, curves, contacts, objects, notes, pose library, footage and saved takes. |
+| Open a reference board | Browser-supported video or image | Local footage and pose sheets; embedded in portable projects. |
+
+**Frame-by-frame video** writes a WebM with an explicit timestamp for every frame. **Quick video** records in real time in the browser's supported MP4 or WebM format. Both export the full take. GLB and frame-by-frame video show progress and support cancellation; quick recording can also be cancelled. The video/image reference board stays outside the captured 3D canvas.
 
 Import self-contained files: embed FBX textures and GLB buffers/textures. Standalone character import and FBX export are not available. Skeleton overlays, gizmos, ghost poses and trajectories are excluded from GLB exports.
 
@@ -89,7 +99,9 @@ Exported reference models and motion remain subject to their original asset lice
 
 The local app processes imported files in your browser and stores projects with IndexedDB and a local edit journal. It has no account system, upload service, analytics or cloud synchronization.
 
-Use the same browser profile and local address to reopen your work: `localhost` and `127.0.0.1` have separate storage. Clearing browser site data can remove projects. Export animations you want to keep outside the browser; a GLB is a baked animation, not a backup of editable project history, notes or saved takes.
+Use the same browser profile and local address to reopen browser saves: `localhost` and `127.0.0.1` have separate storage. Clearing browser site data can remove projects. Save a **`.motionroom` project** to keep editable work outside the browser. A GLB contains the baked animation; a portable project also retains the authoring data, notes and saved takes. The session's Undo/Redo stack is not part of the portable file.
+
+The header distinguishes **Saving…**, **Saved locally** and **Save failed**. Failed writes remain queued for **Retry save**. Export also shows storage usage and, where supported, a **Protect browser saves** control. A portable file remains useful even when browser storage is unavailable.
 
 Deleted projects go to **Trash**, where they can be restored. **Undo** is also available immediately after deletion.
 
@@ -102,9 +114,12 @@ Deleted projects go to **Trash**, where they can be restored. **Undo** is also a
 | W / E / R | Move / rotate / scale the selected scene object or whole character; joints support move and rotate |
 | K | Key the current pose |
 | Delete | Delete the selected object or the selected joint/pose key at the playhead |
-| Ctrl/Cmd + D | Duplicate the selected scene object |
 | Ctrl/Cmd + Z | Undo |
 | Ctrl/Cmd + Shift + Z | Redo |
+| Ctrl/Cmd + S | Download an editable `.motionroom` project |
+| Ctrl/Cmd + C / V | Copy / paste selected keys while the advanced timeline is open |
+| Ctrl/Cmd + D | Duplicate selected keys in the advanced timeline, or duplicate a selected scene object |
+| Shift + left / right arrow | Nudge selected keys by one frame |
 | F | Frame the scene |
 | Shift + F | Focus the selected joint or object |
 | 0 / 1 / 3 / 7 | Perspective / front / side / back view |
@@ -119,6 +134,15 @@ npm test
 npm run dev
 ```
 
+Browser regression checks use a temporary browser profile. With the local server running, install the test browser once and run:
+
+```sh
+npx playwright install chromium
+npm run test:browser
+```
+
+See [testing notes](docs/TESTING.md) for covered workflows and fixtures.
+
 | Location | Purpose |
 | --- | --- |
 | `src/main.js` | Workspace, projects, imports, undo and exports |
@@ -130,6 +154,10 @@ npm run dev
 | `src/studio-tools.js`, `src/motion-analysis.js` | Tool panels, practice sessions, ghost poses and trajectories |
 | `src/reference.js`, `src/reference-catalog.js` | Reference loading, source credits and library entries |
 | `src/reference-store.js`, `src/take-journal.js` | Browser persistence and reload recovery |
+| `src/persistence.js`, `src/project-file.js`, `src/project-manager.js` | Serialized autosaves, portable project container and project library |
+| `src/edit-history.js`, `src/timeline-edit.js` | Clip-aware undo and atomic edits to key groups |
+| `src/pose-tools.js`, `src/media-reference.js`, `src/workspace-layout.js` | Pose library, synchronized footage and adjustable panels |
+| `src/workspace-exports.js`, `src/webm-writer.js` | Cancellable exports and timestamped, seekable WebM video |
 | `tests/` | Import, posing, IK, contacts, timing, geometry, export and compatibility checks |
 
 Some tests load reference assets from this workspace, including the archived mannequin. The full suite requires those fixtures; their licenses are listed in [Third-party notices](THIRD_PARTY_NOTICES.md).

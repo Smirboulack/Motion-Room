@@ -5,7 +5,10 @@ function openStore() {
     connection = new Promise((resolve, reject) => {
       const request = indexedDB.open('motion-room-references', 1);
       request.onupgradeneeded = () => request.result.createObjectStore('lessons');
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        request.result.onversionchange = () => { request.result.close(); connection = undefined; };
+        resolve(request.result);
+      };
       request.onerror = () => reject(request.error);
       request.onblocked = () => reject(new Error('Reference storage is busy.'));
     }).catch(error => {
